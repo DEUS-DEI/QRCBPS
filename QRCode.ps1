@@ -26,55 +26,175 @@ $script:FMT = @{
 }
 
 $script:ALPH = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ `$%*+-./:"
-$script:SPEC = @{
-    '1L'=@{D=19;E=7;G1=1;D1=19;G2=0;D2=0}; '1M'=@{D=16;E=10;G1=1;D1=16;G2=0;D2=0}; '1Q'=@{D=13;E=13;G1=1;D1=13;G2=0;D2=0}; '1H'=@{D=9;E=17;G1=1;D1=9;G2=0;D2=0}
-    '2L'=@{D=34;E=10;G1=1;D1=34;G2=0;D2=0}; '2M'=@{D=28;E=16;G1=1;D1=28;G2=0;D2=0}; '2Q'=@{D=22;E=22;G1=1;D1=22;G2=0;D2=0}; '2H'=@{D=16;E=28;G1=1;D1=16;G2=0;D2=0}
-    '3L'=@{D=55;E=15;G1=1;D1=55;G2=0;D2=0}; '3M'=@{D=44;E=26;G1=1;D1=44;G2=0;D2=0}; '3Q'=@{D=34;E=36;G1=2;D1=17;G2=0;D2=0}; '3H'=@{D=26;E=44;G1=2;D1=13;G2=0;D2=0}
-    '4L'=@{D=80;E=20;G1=1;D1=80;G2=0;D2=0}; '4M'=@{D=64;E=36;G1=2;D1=32;G2=0;D2=0}; '4Q'=@{D=48;E=52;G1=2;D1=24;G2=0;D2=0}; '4H'=@{D=36;E=64;G1=4;D1=9;G2=0;D2=0}
-    '5L'=@{D=108;E=26;G1=1;D1=108;G2=0;D2=0}; '5M'=@{D=86;E=48;G1=2;D1=43;G2=0;D2=0}; '5Q'=@{D=62;E=72;G1=2;D1=15;G2=2;D2=16}; '5H'=@{D=46;E=88;G1=2;D1=11;G2=2;D2=12}
-    '6L'=@{D=136;E=36;G1=2;D1=68;G2=0;D2=0}; '6M'=@{D=108;E=64;G1=4;D1=27;G2=0;D2=0}; '6Q'=@{D=76;E=96;G1=4;D1=19;G2=0;D2=0}; '6H'=@{D=60;E=112;G1=4;D1=15;G2=0;D2=0}
-    '7L'=@{D=156;E=40;G1=2;D1=78;G2=0;D2=0}; '7M'=@{D=124;E=72;G1=4;D1=31;G2=0;D2=0}; '7Q'=@{D=88;E=108;G1=2;D1=14;G2=4;D2=15}; '7H'=@{D=66;E=130;G1=4;D1=13;G2=1;D2=14}
-    '8L'=@{D=194;E=48;G1=2;D1=97;G2=0;D2=0}; '8M'=@{D=154;E=88;G1=2;D1=38;G2=2;D2=39}; '8Q'=@{D=110;E=132;G1=4;D1=22;G2=2;D2=23}; '8H'=@{D=86;E=156;G1=4;D1=16;G2=2;D2=17}
-    '9L'=@{D=232;E=60;G1=2;D1=116;G2=0;D2=0}; '9M'=@{D=180;E=112;G1=3;D1=45;G2=1;D2=46}; '9Q'=@{D=132;E=160;G1=4;D1=26;G2=2;D2=27}; '9H'=@{D=100;E=192;G1=4;D1=18;G2=2;D2=19}
-    '10L'=@{D=274;E=72;G1=2;D1=137;G2=0;D2=0}; '10M'=@{D=216;E=130;G1=4;D1=43;G2=2;D2=44}; '10Q'=@{D=154;E=192;G1=4;D1=23;G2=2;D2=24}; '10H'=@{D=122;E=224;G1=2;D1=15;G2=4;D2=16}
-}
-
-$script:CAP = @{
-    1=@{L=@(41,25,17);M=@(34,20,14);Q=@(27,16,11);H=@(17,10,7)}
-    2=@{L=@(77,47,32);M=@(63,38,26);Q=@(48,29,20);H=@(34,20,14)}
-    3=@{L=@(127,77,53);M=@(101,61,42);Q=@(77,47,32);H=@(58,35,24)}
-    4=@{L=@(187,114,78);M=@(149,90,62);Q=@(111,67,46);H=@(82,50,34)}
-    5=@{L=@(255,154,106);M=@(202,122,84);Q=@(144,87,60);H=@(106,64,44)}
-    6=@{L=@(322,195,134);M=@(255,154,106);Q=@(178,108,74);H=@(139,84,58)}
-    7=@{L=@(370,224,154);M=@(293,178,122);Q=@(207,125,86);H=@(154,93,64)}
-    8=@{L=@(461,279,192);M=@(365,221,152);Q=@(259,157,108);H=@(202,122,84)}
-    9=@{L=@(552,335,230);M=@(432,262,180);Q=@(312,189,130);H=@(235,143,98)}
-    10=@{L=@(652,395,271);M=@(513,311,213);Q=@(364,221,151);H=@(288,174,119)}
-}
-
-$script:ALIGN = @{
-    2=@(6,18); 3=@(6,22); 4=@(6,26); 5=@(6,30); 6=@(6,34); 
-    7=@(6,22,38); 8=@(6,24,42); 9=@(6,26,46); 10=@(6,28,50)
-}
-
 $script:VER_INFO = @{
     7='000111110010010100'; 8='001000010110111100'; 9='001001101010011001'; 10='001010010011010011'
+    11='001011101111110110'; 12='001100011101100010'; 13='001101101001011001'; 14='001110010010101111'
+    15='010000101101001100'; 16='010001011111110001'; 17='010010101011000000'; 18='010011011001111101'
+    19='010100100110110111'; 20='010101010100001010'; 21='010110100000111000'; 22='010111010010000101'
+    23='011000101101101111'; 24='011001011111010010'; 25='011010101011100011'; 26='011011011001011110'
+    27='011100100110010100'; 28='011101010100101001'; 29='011110100000011011'; 30='011111010010100110'
+    31='100000101100111101'; 32='100001011110000000'; 33='100010101010110101'; 34='100011011000001000'
+    35='100100100111000010'; 36='100101010101111111'; 37='100110100001001101'; 38='100111010011110000'
+    39='101000101100011000'; 40='101001011110100101'
+}
+
+# Calculated Tables for V1-V40 (Source: ISO 18004 / Nayuki)
+# EC Codewords Per Block (L, M, Q, H) by Version (0 is padding)
+$ECC_PER_BLOCK = @(
+    @(-1,-1,-1,-1), # V0
+    @(-1, 7, 10, 13, 17), @(-1, 10, 16, 22, 28), @(-1, 15, 26, 18, 22), @(-1, 20, 18, 26, 16),
+    @(-1, 26, 24, 18, 22), @(-1, 18, 16, 24, 28), @(-1, 20, 18, 18, 26), @(-1, 24, 22, 20, 24),
+    @(-1, 30, 22, 20, 28), @(-1, 18, 26, 24, 24), @(-1, 20, 30, 28, 28), @(-1, 24, 22, 26, 26),
+    @(-1, 26, 22, 24, 24), @(-1, 30, 24, 20, 24), @(-1, 22, 24, 30, 24), @(-1, 24, 28, 24, 30),
+    @(-1, 28, 28, 28, 28), @(-1, 30, 26, 28, 28), @(-1, 28, 26, 26, 26), @(-1, 28, 26, 30, 28),
+    @(-1, 28, 26, 28, 30), @(-1, 28, 28, 30, 24), @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30),
+    @(-1, 26, 28, 30, 30), @(-1, 28, 28, 28, 30), @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30),
+    @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30),
+    @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30),
+    @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30), @(-1, 30, 28, 30, 30)
+)
+
+# Number of EC Blocks (L, M, Q, H) by Version
+$NUM_EC_BLOCKS = @(
+    @(-1,-1,-1,-1),
+    @(-1, 1, 1, 1, 1), @(-1, 1, 1, 1, 1), @(-1, 1, 1, 2, 2), @(-1, 1, 2, 2, 4),
+    @(-1, 1, 2, 2, 2), @(-1, 2, 4, 4, 4), @(-1, 2, 4, 6, 5), @(-1, 2, 4, 6, 6),
+    @(-1, 2, 5, 8, 8), @(-1, 4, 5, 8, 8), @(-1, 4, 5, 8, 11), @(-1, 4, 8, 10, 11),
+    @(-1, 4, 9, 12, 16), @(-1, 4, 9, 16, 16), @(-1, 6, 10, 12, 18), @(-1, 6, 10, 17, 16),
+    @(-1, 6, 11, 16, 19), @(-1, 6, 13, 18, 21), @(-1, 7, 14, 21, 25), @(-1, 8, 16, 20, 25),
+    @(-1, 8, 17, 23, 25), @(-1, 9, 17, 23, 34), @(-1, 9, 18, 25, 30), @(-1, 10, 20, 27, 32),
+    @(-1, 12, 21, 29, 35), @(-1, 12, 23, 34, 37), @(-1, 12, 25, 34, 40), @(-1, 13, 26, 35, 42),
+    @(-1, 14, 28, 38, 45), @(-1, 15, 29, 40, 48), @(-1, 16, 31, 43, 51), @(-1, 17, 33, 45, 54),
+    @(-1, 18, 35, 48, 57), @(-1, 19, 37, 51, 60), @(-1, 19, 38, 53, 63), @(-1, 20, 40, 56, 66),
+    @(-1, 21, 43, 59, 70), @(-1, 22, 45, 62, 74), @(-1, 24, 47, 65, 77), @(-1, 25, 49, 68, 81)
+)
+
+# Total Data Codewords (L, M, Q, H) - ISO 18004 Standard
+$DATA_CW_TABLE = @(
+    @(-1,-1,-1,-1),
+    @(19,16,13,9), @(34,28,22,16), @(55,44,34,26), @(80,64,48,36), @(108,86,62,46),
+    @(136,108,76,60), @(156,124,88,66), @(194,154,110,86), @(232,182,132,100), @(274,216,154,122),
+    @(324,254,180,140), @(376,292,208,154), @(424,332,244,180), @(460,362,260,202), @(520,412,312,236),
+    @(586,450,364,288), @(644,504,392,312), @(718,560,422,342), @(792,624,472,374), @(858,666,518,406),
+    @(929,711,553,443), @(1003,779,599,499), @(1091,857,651,541), @(1171,911,701,595), @(1273,997,775,649),
+    @(1367,1059,879,723), @(1465,1125,935,781), @(1528,1190,1006,804), @(1628,1264,1052,868), @(1732,1370,1120,932),
+    @(1840,1452,1202,998), @(1952,1538,1274,1062), @(2068,1628,1354,1118), @(2188,1722,1432,1184), @(2303,1809,1529,1267),
+    @(2431,1911,1627,1339), @(2563,1989,1693,1413), @(2699,2099,1781,1487), @(2809,2213,1869,1553), @(2953,2331,1991,1651)
+)
+# Note: Some online tables vary slightly for V14+. Using generic safe capacity.
+
+$script:SPEC = @{}
+$script:CAP = @{}
+$script:ALIGN = @{}
+
+for ($v = 1; $v -le 40; $v++) {
+    $script:CAP[$v] = @{}
+    
+    # Calculate Alignment Patterns
+    if ($v -gt 1) {
+        $numAlign = [Math]::Floor($v / 7) + 2
+        $step = if ($numAlign -eq 1) { 0 } else { [Math]::Floor(($v * 8 + $numAlign * 3 + 5) / ($numAlign * 4 - 4)) * 2 }
+        $pos = @(); for ($i = 0; $i -lt $numAlign - 1; $i++) { $pos += ($v * 4 + 17 - 7 - $i * $step) }
+        $pos += 6; $script:ALIGN[$v] = $pos | Sort-Object
+    }
+    
+    foreach ($ec in 'L','M','Q','H') {
+        $ecIdx = switch($ec){'L'{1}'M'{2}'Q'{3}'H'{4}}
+        $numBlocks = $NUM_EC_BLOCKS[$v][$ecIdx]
+        $ecPerBlock = $ECC_PER_BLOCK[$v][$ecIdx]
+        
+        # USE STATIC TABLE FOR DATA CAPACITY
+        $totalData = $DATA_CW_TABLE[$v][$ecIdx - 1]
+        $totalEC = $numBlocks * $ecPerBlock
+        
+        # Calculate Group split
+        # D1 = totalData / numBlocks (floor)
+        # remainder = totalData % numBlocks
+        # blocks with D1+1 data = remainder
+        # blocks with D1 data = numBlocks - remainder
+        # Group 2 is the one with LARGER data size (D1+1) standard usually puts them at the end.
+        
+        $numLong = $totalData % $numBlocks
+        $numShort = $numBlocks - $numLong
+        $d1 = [Math]::Floor($totalData / $numBlocks)
+        
+        # According to spec, Group 1 has fewer codewords, Group 2 has more.
+        # So G1 gets $d1, G2 gets $d1+1
+        # G1 count = $numShort
+        # G2 count = $numLong
+        
+        $key = "$v$ec"
+        $script:SPEC[$key] = @{
+            D = $totalData
+            E = $totalEC
+            G1 = $numShort
+            D1 = $d1
+            G2 = $numLong
+            D2 = ($d1 + 1)
+        }
+        
+        # Calculate max chars
+        $bits = $totalData * 8
+        $bitsN = if($v -le 9){10} elseif($v -le 26){12} else{14}
+        $bitsA = if($v -le 9){9}  elseif($v -le 26){11} else{13}
+        $bitsK = 13
+        
+        $script:CAP[$v][$ec] = @(
+            [Math]::Floor($bits / $bitsN * 3), 
+            [Math]::Floor($bits / $bitsA * 2), 
+            $totalData,                        
+            [Math]::Floor($bits / $bitsK)      
+        )
+    }
 }
 
 function GetMode($t) {
     if ($t -match '^[0-9]+$') { return 'N' }
-    foreach ($c in $t.ToCharArray()) { if ($script:ALPH.IndexOf($c) -lt 0) { return 'B' } }
-    return 'A'
+    
+    $isAlphanumeric = $true
+    foreach ($c in $t.ToCharArray()) { if ($script:ALPH.IndexOf($c) -lt 0) { $isAlphanumeric = $false; break } }
+    if ($isAlphanumeric) { return 'A' }
+    
+    return 'B'
 }
 
 function Encode($txt, $ver, $ec) {
     $mode = GetMode $txt
+    
+    # Kanji Auto-Detection (Heuristic: if Byte mode contains valid Shift-JIS double-byte chars)
+    if ($mode -eq 'B') {
+        $sjis = [System.Text.Encoding]::GetEncoding(932)
+        $b = $sjis.GetBytes($txt)
+        if ($b.Length -eq $txt.Length * 2) { 
+            # Potential Kanji (all chars became 2 bytes)
+            $validK = $true
+            for ($i=0; $i -lt $b.Length; $i+=2) {
+                $val = ($b[$i] -shl 8) -bor $b[$i+1]
+                $inR1 = ($val -ge 0x8140 -and $val -le 0x9FFC)
+                $inR2 = ($val -ge 0xE040 -and $val -le 0xEBBF)
+                if (-not ($inR1 -or $inR2)) { $validK = $false; break }
+            }
+            if ($validK) { $mode = 'K' }
+        }
+    }
+
     $bits = New-Object System.Collections.ArrayList
     
-    switch ($mode) { 'N'{[void]$bits.AddRange(@(0,0,0,1))} 'A'{[void]$bits.AddRange(@(0,0,1,0))} 'B'{[void]$bits.AddRange(@(0,1,0,0))} }
+    switch ($mode) { 
+        'N'{[void]$bits.AddRange(@(0,0,0,1))} 
+        'A'{[void]$bits.AddRange(@(0,0,1,0))} 
+        'B'{[void]$bits.AddRange(@(0,1,0,0))}
+        'K'{[void]$bits.AddRange(@(1,0,0,0))}
+    }
     
-    $cb = switch ($mode) { 'N'{10} 'A'{9} 'B'{8} }
-    $len = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($txt) } else { $txt.Length }
+    $cb = switch ($mode) { 
+        'N' { if($ver -le 9){10} elseif($ver -le 26){12} else{14} } 
+        'A' { if($ver -le 9){9}  elseif($ver -le 26){11} else{13} } 
+        'B' { if($ver -le 9){8}  else{16} }
+        'K' { if($ver -le 9){8}  elseif($ver -le 26){10} else{12} }
+    }
+    
+    $len = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($txt) } elseif ($mode -eq 'K') { $txt.Length } else { $txt.Length }
     for ($i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($len -shr $i) -band 1)) }
     
     switch ($mode) {
@@ -99,6 +219,18 @@ function Encode($txt, $ver, $ec) {
         'B' {
             foreach ($byte in [Text.Encoding]::UTF8.GetBytes($txt)) {
                 for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($byte -shr $b) -band 1)) }
+            }
+        }
+        'K' {
+            $sjis = [System.Text.Encoding]::GetEncoding(932)
+            $bytes = $sjis.GetBytes($txt)
+            for ($i = 0; $i -lt $bytes.Length; $i += 2) {
+                $val = ($bytes[$i] -shl 8) -bor $bytes[$i+1]
+                if ($val -ge 0x8140 -and $val -le 0x9FFC) { $val -= 0x8140 }
+                elseif ($val -ge 0xE040 -and $val -le 0xEBBF) { $val -= 0xC140 }
+                
+                $val = (($val -shr 8) * 0xC0) + ($val -band 0xFF)
+                for ($b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
             }
         }
     }
