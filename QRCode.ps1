@@ -443,14 +443,16 @@ function AddVersionInfo($m, $ver) {
     $size = $m.Size
     
     for ($i = 0; $i -lt 18; $i++) {
+        # bits[0] is d17, bits[17] is d0
         $bit = [int]($bits[17 - $i].ToString())
         
-        # Top-Right block (6x3)
-        $r = $i % 6
+        # Top-Right block (6 rows x 3 cols)
+        # Standard: d0 at (5, size-11), d5 at (0, size-11)
+        $r = 5 - ($i % 6)
         $c = $size - 11 + [Math]::Floor($i / 6)
         SetF $m $r $c $bit
         
-        # Bottom-Left block (3x6)
+        # Bottom-Left block (3 rows x 6 cols)
         SetF $m $c $r $bit
     }
 }
@@ -581,6 +583,27 @@ function GetPenalty($m) {
         }
     }
     
+    # Rule 3: Finder-like patterns (1:1:3:1:1 ratio)
+    for ($r = 0; $r -lt $size; $r++) {
+        for ($c = 0; $c -lt $size - 10; $c++) {
+            $p = @()
+            for($x=0;$x -lt 11;$x++){ $p += GetM $m $r ($c+$x) }
+            # Pattern: 0000 10111 01  or  10111 01 0000
+            if (($p[4..10] -join "" -eq "1011101") -and (($p[0..3] -join "" -eq "0000") -or ($p[7..10] -join "" -eq "0000"))) {
+                $pen += 40
+            }
+        }
+    }
+    for ($c = 0; $c -lt $size; $c++) {
+        for ($r = 0; $r -lt $size - 10; $r++) {
+            $p = @()
+            for($x=0;$x -lt 11;$x++){ $p += GetM $m ($r+$x) $c }
+            if (($p[4..10] -join "" -eq "1011101") -and (($p[0..3] -join "" -eq "0000") -or ($p[7..10] -join "" -eq "0000"))) {
+                $pen += 40
+            }
+        }
+    }
+
     # Rule 4
     $dark = 0
     for ($r = 0; $r -lt $size; $r++) {
