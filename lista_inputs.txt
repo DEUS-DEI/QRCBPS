@@ -7,3 +7,6 @@ Español: Camión, Cigüeña, Año 2026
 WIFI:S:MiRed;T:WPA;P:clave123;;
 東京 (Tokyo)
 Mixed: 9876543210 THISISALPHA smalltext 漢字
+123
+HELLO
+12345678901234567890
