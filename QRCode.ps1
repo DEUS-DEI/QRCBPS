@@ -676,8 +676,17 @@ function New-QRCode {
 # BATCH PROCESSING LOGIC
 # ============================================================================
 function Get-IniValue($content, $section, $key, $defaultValue) {
-    if ($content -match "(?ms)^\[$section\].*?^$key\s*=\s*([^`r`n]+)") {
-        return $matches[1].Trim()
+    $inSection = $false
+    if ($content -is [string]) { $lines = $content -split '\r?\n' } else { $lines = $content }
+    
+    foreach ($line in $lines) {
+        $trim = $line.Trim()
+        if ($trim -match "^\[$section\]") { $inSection = $true; continue }
+        if ($inSection -and $trim -match "^\[") { break } 
+        
+        if ($inSection -and $trim -match "^$key\s*=(.*)") {
+            return $matches[1].Trim()
+        }
     }
     return $defaultValue
 }
@@ -697,6 +706,9 @@ function Start-BatchProcessing {
     $modSize = [int](Get-IniValue $iniContent "OpcionesQR" "TamanoModulo" "10")
     $prefix = Get-IniValue $iniContent "NombresArchivos" "Prefijo" "qr_"
     $useConsec = (Get-IniValue $iniContent "NombresArchivos" "UseConsecutivo" "si") -eq "si"
+    $suffix = Get-IniValue $iniContent "NombresArchivos" "Sufijo" ""
+    $useTs = (Get-IniValue $iniContent "NombresArchivos" "IncluirTimestamp" "no") -eq "si"
+    $tsFormat = Get-IniValue $iniContent "NombresArchivos" "FormatoFecha" "yyyyMMdd_HHmmss"
     
     # Validar entrada
     $inputPath = Join-Path $PSScriptRoot $inputFile            
@@ -718,20 +730,27 @@ function Start-BatchProcessing {
     foreach ($line in $lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         
-        # Determinar nombre archivo
-        $name = ""
+        # Determinar nombre base
+        $baseName = ""
         if ($useConsec) {
-            $name = "$prefix$count.png"
+            $baseName = "$count"
         } else {
             # Sanitizar nombre
-            $safeName = $prefix + ($line -replace '[^a-zA-Z0-9]', '_')
-            if ($safeName.Length -gt 20) { $safeName = $safeName.Substring(0, 20) }
-            $name = "$safeName.png"
+            $baseName = $line -replace '[^a-zA-Z0-9]', '_'
+            if ($baseName.Length -gt 20) { $baseName = $baseName.Substring(0, 20) }
         }
+        
+        # Construir nombre completo
+        $nameParts = @($prefix, $baseName)
+        if (-not [string]::IsNullOrEmpty($suffix)) { $nameParts += $suffix }
+        if ($useTs) { $nameParts += "_" + (Get-Date -Format $tsFormat) }
+        
+        $name = ($nameParts -join "") + ".png"
         
         $finalPath = Join-Path $outPath $name
         
         Write-Host "Procesando [$count]: $line" -ForegroundColor Gray
+        Write-Host "Target: $finalPath" -ForegroundColor DarkGray
         try {
             New-QRCode -Data $line -OutputPath $finalPath -ECLevel $ecLevel -ModuleSize $modSize
         } catch {
