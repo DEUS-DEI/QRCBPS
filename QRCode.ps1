@@ -166,35 +166,32 @@ function Get-Segments($txt) {
     $len = $txt.Length
     $i = 0
     
-    $sjis = [System.Text.Encoding]::GetEncoding(932)
-    
     while ($i -lt $len) {
-        # 1. Calc run lengths at current position
-        
-        # Numeric
+        # Check run lengths at current position
         $nRun = 0; $j = $i
         while ($j -lt $len -and $txt[$j] -match '[0-9]') { $nRun++; $j++ }
         
-        # 2. Decide Mode for THIS chunk
-        $nextMode = 'B'
-        $nextLen = 1
+        $aRun = 0; $j = $i
+        while ($j -lt $len -and $script:ALPH.Contains($txt[$j])) { $aRun++; $j++ }
         
-        if ($nRun -ge 4) { $nextMode='N'; $nextLen=$nRun }
+        $mode = 'B'
+        $mLen = 1
+        
+        if ($nRun -ge 4) { $mode = 'N'; $mLen = $nRun }
+        elseif ($aRun -ge 6) { $mode = 'A'; $mLen = $aRun }
         else {
-             # Default to Byte mode (Handles Alpha, Kanji/Unicode as UTF-8)
-             $nextMode = 'B'
-             $nextLen = 1
+            $mode = 'B'
+            $mLen = 1
         }
         
-        # 3. Merge or Add
-        $chunk = $txt.Substring($i, $nextLen)
-        if ($segs.Count -gt 0 -and $segs[$segs.Count-1].Mode -eq $nextMode) {
+        $chunk = $txt.Substring($i, $mLen)
+        if ($segs.Count -gt 0 -and $segs[$segs.Count-1].Mode -eq $mode) {
             $segs[$segs.Count-1].Data += $chunk
         } else {
-            $segs += @{Mode=$nextMode; Data=$chunk}
+            $segs += @{Mode=$mode; Data=$chunk}
         }
         
-        $i += $nextLen
+        $i += $mLen
     }
     return $segs
 }
@@ -343,8 +340,47 @@ function GetEC($data, $ecn) {
 
 function BuildCW($data, $ver, $ec) {
     $spec = $script:SPEC["$ver$ec"]
-    $ecCW = GetEC $data $spec.E
-    return $data + $ecCW
+    $ecIdx = switch($ec){'L'{1}'M'{2}'Q'{3}'H'{4}}
+    $ecn = $script:ECC_PER_BLOCK[$ver][$ecIdx]
+    
+    # 1. Split data codewords into blocks
+    $blocks = @()
+    $offset = 0
+    # Group 1
+    for ($i = 0; $i -lt $spec.G1; $i++) {
+        $blocks += ,($data[$offset..($offset + $spec.D1 - 1)])
+        $offset += $spec.D1
+    }
+    # Group 2
+    for ($i = 0; $i -lt $spec.G2; $i++) {
+        $blocks += ,($data[$offset..($offset + $spec.D2 - 1)])
+        $offset += $spec.D2
+    }
+    
+    # 2. Calculate EC per block
+    $ecBlocks = @()
+    foreach ($b in $blocks) {
+        $ecBlocks += ,(GetEC $b $ecn)
+    }
+    
+    # 3. Interleave Data
+    $interleavedData = @()
+    $maxD = if ($spec.G2 -gt 0) { $spec.D2 } else { $spec.D1 }
+    for ($i = 0; $i -lt $maxD; $i++) {
+        foreach ($b in $blocks) {
+            if ($i -lt $b.Count) { $interleavedData += $b[$i] }
+        }
+    }
+    
+    # 4. Interleave EC
+    $interleavedEC = @()
+    for ($i = 0; $i -lt $ecn; $i++) {
+        foreach ($eb in $ecBlocks) {
+            $interleavedEC += $eb[$i]
+        }
+    }
+    
+    return $interleavedData + $interleavedEC
 }
 
 function GetSize($v) { return 17 + $v * 4 }
@@ -407,14 +443,15 @@ function AddVersionInfo($m, $ver) {
     $size = $m.Size
     
     for ($i = 0; $i -lt 18; $i++) {
-        $bit = [int]($bits[$i].ToString())
+        $bit = [int]($bits[17 - $i].ToString())
         
-        # Block 1: Bottom-Left (near finder)
-        # 6x3 block. Rows: Size-11 to Size-9. Cols: 0 to 5.
-        $r = [Math]::Floor($i / 3)
-        $c = ($i % 3) + $size - 11
-        SetF $m $r $c $bit   
-        SetF $m $c $r $bit   
+        # Top-Right block (6x3)
+        $r = $i % 6
+        $c = $size - 11 + [Math]::Floor($i / 6)
+        SetF $m $r $c $bit
+        
+        # Bottom-Left block (3x6)
+        SetF $m $c $r $bit
     }
 }
 
