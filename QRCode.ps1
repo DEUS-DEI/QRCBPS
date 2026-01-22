@@ -14,6 +14,7 @@ param(
     [ValidateSet('L','M','Q','H')][string]$ECLevel = 'M',
     [int]$Version = 0,
     [int]$ModuleSize = 10,
+    [int]$EciValue = 0,
     [switch]$ShowConsole
 )
 
@@ -158,93 +159,141 @@ for ($v = 1; $v -le 40; $v++) {
     }
 }
 
-function GetMode($t) {
-    if ($t -match '^[0-9]+$') { return 'N' }
+# --- SEGMENTATION & ENCODING ENGINE (ISO 18004 COMPLIANT) ---
+
+function Get-Segments($txt) {
+    $segs = @()
+    $len = $txt.Length
+    $i = 0
     
-    $isAlphanumeric = $true
-    foreach ($c in $t.ToCharArray()) { if ($script:ALPH.IndexOf($c) -lt 0) { $isAlphanumeric = $false; break } }
-    if ($isAlphanumeric) { return 'A' }
+    $sjis = [System.Text.Encoding]::GetEncoding(932)
     
-    return 'B'
+    while ($i -lt $len) {
+        # 1. Calc run lengths at current position
+        # Kanji
+        $kRun = 0; $j = $i
+        while ($j -lt $len) {
+             if ($j + 1 -ge $len) { break } # Need 2 chars for test? No, GetBytes logic...
+             $sub = $txt.Substring($j, 1)
+             $b = $sjis.GetBytes($sub)
+             if ($b.Length -eq 2) {
+                $val = ($b[0] -shl 8) -bor $b[1]
+                $valid = ($val -ge 0x8140 -and $val -le 0x9FFC) -or ($val -ge 0xE040 -and $val -le 0xEBBF)
+                if ($valid) { $kRun++; $j++ } else { break }
+             } else { break }
+        }
+        
+        # Numeric
+        $nRun = 0; $j = $i
+        while ($j -lt $len -and $txt[$j] -match '[0-9]') { $nRun++; $j++ }
+        
+        # 2. Decide Mode for THIS chunk
+        $nextMode = 'B'
+        $nextLen = 1
+        
+        if ($kRun -ge 3) { $nextMode='K'; $nextLen=$kRun }
+        elseif ($nRun -ge 4) { $nextMode='N'; $nextLen=$nRun }
+        else {
+             # Default to Byte mode (Robustness over Alpha compression)
+             $nextMode = 'B'
+             $nextLen = 1
+        }
+        
+        # 3. Merge or Add
+        $chunk = $txt.Substring($i, $nextLen)
+        if ($segs.Count -gt 0 -and $segs[$segs.Count-1].Mode -eq $nextMode) {
+            $segs[$segs.Count-1].Data += $chunk
+        } else {
+            $segs += @{Mode=$nextMode; Data=$chunk}
+        }
+        
+        $i += $nextLen
+    }
+    return $segs
 }
 
-function Encode($txt, $ver, $ec) {
-    $mode = GetMode $txt
-    
-    # Kanji Auto-Detection (Heuristic: if Byte mode contains valid Shift-JIS double-byte chars)
-    if ($mode -eq 'B') {
-        $sjis = [System.Text.Encoding]::GetEncoding(932)
-        $b = $sjis.GetBytes($txt)
-        if ($b.Length -eq $txt.Length * 2) { 
-            # Potential Kanji (all chars became 2 bytes)
-            $validK = $true
-            for ($i=0; $i -lt $b.Length; $i+=2) {
-                $val = ($b[$i] -shl 8) -bor $b[$i+1]
-                $inR1 = ($val -ge 0x8140 -and $val -le 0x9FFC)
-                $inR2 = ($val -ge 0xE040 -and $val -le 0xEBBF)
-                if (-not ($inR1 -or $inR2)) { $validK = $false; break }
-            }
-            if ($validK) { $mode = 'K' }
-        }
-    }
-
+function Encode($segments, $ver, $ec) {
     $bits = New-Object System.Collections.ArrayList
     
-    switch ($mode) { 
-        'N'{[void]$bits.AddRange(@(0,0,0,1))} 
-        'A'{[void]$bits.AddRange(@(0,0,1,0))} 
-        'B'{[void]$bits.AddRange(@(0,1,0,0))}
-        'K'{[void]$bits.AddRange(@(1,0,0,0))}
-    }
-    
-    $cb = switch ($mode) { 
-        'N' { if($ver -le 9){10} elseif($ver -le 26){12} else{14} } 
-        'A' { if($ver -le 9){9}  elseif($ver -le 26){11} else{13} } 
-        'B' { if($ver -le 9){8}  else{16} }
-        'K' { if($ver -le 9){8}  elseif($ver -le 26){10} else{12} }
-    }
-    
-    $len = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($txt) } elseif ($mode -eq 'K') { $txt.Length } else { $txt.Length }
-    for ($i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($len -shr $i) -band 1)) }
-    
-    switch ($mode) {
-        'N' {
-            for ($i = 0; $i -lt $txt.Length; $i += 3) {
-                $ch = $txt.Substring($i, [Math]::Min(3, $txt.Length - $i))
-                $v = [int]$ch; $nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
-                for ($b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
-            }
+    foreach ($seg in $segments) {
+        $mode = $seg.Mode
+        $txt = $seg.Data
+        
+        # Mode Indicator
+        switch ($mode) { 
+            'N'{[void]$bits.AddRange(@(0,0,0,1))} 
+            'A'{[void]$bits.AddRange(@(0,0,1,0))} 
+            'B'{[void]$bits.AddRange(@(0,1,0,0))}
+            'K'{[void]$bits.AddRange(@(1,0,0,0))}
+            'ECI'{[void]$bits.AddRange(@(0,1,1,1))}
         }
-        'A' {
-            for ($i = 0; $i -lt $txt.Length; $i += 2) {
-                if ($i + 1 -lt $txt.Length) {
-                    $v = $script:ALPH.IndexOf($txt[$i]) * 45 + $script:ALPH.IndexOf($txt[$i+1])
-                    for ($b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
-                } else {
-                    $v = $script:ALPH.IndexOf($txt[$i])
-                    for ($b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+        
+        if ($mode -eq 'ECI') {
+            # ECI Assignment Value (0-999999)
+            $val = [int]$txt
+            if ($val -lt 128) {
+                for ($b=7; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+            } elseif ($val -lt 16384) {
+                [void]$bits.AddRange(@(1,0)) # First 2 bits 10
+                for ($b=13; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+            } else {
+                 [void]$bits.AddRange(@(1,1,0)) # First 3 bits 110
+                 for ($b=20; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+            }
+            continue # Next segment
+        }
+        
+        # Character Count Indicator
+        $cb = switch ($mode) { 
+            'N' { if($ver -le 9){10} elseif($ver -le 26){12} else{14} } 
+            'A' { if($ver -le 9){9}  elseif($ver -le 26){11} else{13} } 
+            'B' { if($ver -le 9){8}  else{16} }
+            'K' { if($ver -le 9){8}  elseif($ver -le 26){10} else{12} }
+        }
+        
+        $count = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($txt) } else { $txt.Length }
+        for ($i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($count -shr $i) -band 1)) }
+        
+        # Data Encoding
+        switch ($mode) {
+            'N' {
+                for ($i = 0; $i -lt $txt.Length; $i += 3) {
+                    $ch = $txt.Substring($i, [Math]::Min(3, $txt.Length - $i))
+                    $v = [int]$ch; $nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
+                    for ($b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                }
+            }
+            'A' {
+                for ($i = 0; $i -lt $txt.Length; $i += 2) {
+                    if ($i + 1 -lt $txt.Length) {
+                        $v = $script:ALPH.IndexOf($txt[$i]) * 45 + $script:ALPH.IndexOf($txt[$i+1])
+                        for ($b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                    } else {
+                        $v = $script:ALPH.IndexOf($txt[$i])
+                        for ($b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                    }
+                }
+            }
+            'B' {
+                foreach ($byte in [Text.Encoding]::UTF8.GetBytes($txt)) {
+                    for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($byte -shr $b) -band 1)) }
+                }
+            }
+            'K' {
+                $sjis = [System.Text.Encoding]::GetEncoding(932)
+                $bytes = $sjis.GetBytes($txt)
+                for ($i = 0; $i -lt $bytes.Length; $i += 2) {
+                    $val = ($bytes[$i] -shl 8) -bor $bytes[$i+1]
+                    if ($val -ge 0x8140 -and $val -le 0x9FFC) { $val -= 0x8140 }
+                    elseif ($val -ge 0xE040 -and $val -le 0xEBBF) { $val -= 0xC140 }
+                    $val = (($val -shr 8) * 0xC0) + ($val -band 0xFF)
+                    for ($b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
                 }
             }
         }
-        'B' {
-            foreach ($byte in [Text.Encoding]::UTF8.GetBytes($txt)) {
-                for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($byte -shr $b) -band 1)) }
-            }
-        }
-        'K' {
-            $sjis = [System.Text.Encoding]::GetEncoding(932)
-            $bytes = $sjis.GetBytes($txt)
-            for ($i = 0; $i -lt $bytes.Length; $i += 2) {
-                $val = ($bytes[$i] -shl 8) -bor $bytes[$i+1]
-                if ($val -ge 0x8140 -and $val -le 0x9FFC) { $val -= 0x8140 }
-                elseif ($val -ge 0xE040 -and $val -le 0xEBBF) { $val -= 0xC140 }
-                
-                $val = (($val -shr 8) * 0xC0) + ($val -band 0xFF)
-                for ($b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
-            }
-        }
     }
     
+    # Terminator and Padding
     $cap = $script:SPEC["$ver$ec"].D * 8
     $term = [Math]::Min(4, $cap - $bits.Count)
     for ($i = 0; $i -lt $term; $i++) { [void]$bits.Add(0) }
@@ -627,32 +676,95 @@ function New-QRCode {
         [int]$Version = 0,
         [string]$OutputPath,
         [int]$ModuleSize = 10,
+        [int]$EciValue = 0,
         [switch]$ShowConsole
     )
     
     $sw = [Diagnostics.Stopwatch]::StartNew()
     
-    $mode = GetMode $Data
-    Write-Host "Modo: $(switch($mode){'N'{'Numerico'}'A'{'Alfanumerico'}'B'{'Byte'}})" -ForegroundColor Cyan
+    # 1. Segment Data
+    $segments = @()
     
+    # Add ECI Header if requested or needed for UTF-8
+    if ($EciValue -gt 0) {
+        $segments += @{Mode='ECI'; Data="$EciValue"}
+    } elseif ($Data -match '[^ -~]') { # Contains non-ASCII
+        # Auto-inject UTF-8 ECI for maximum compatibility
+        $segments += @{Mode='ECI'; Data="26"}
+    }
+    
+    # Add Data Segments (Automatic Mixed Mode)
+    $segments += Get-Segments $Data
+    
+    # Display Segments info
+    $modesStr = ($segments | ForEach-Object { $_.Mode }) -join "+"
+    Write-Host "Modos: $modesStr" -ForegroundColor Cyan
+    
+    # 2. Determine Version
     if ($Version -eq 0) {
-        $mi = switch ($mode) { 'N'{0} 'A'{1} 'B'{2} }
-        $len = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($Data) } else { $Data.Length }
-        
-        # Try versions 1 to 10
-        for ($v = 1; $v -le 10; $v++) {
-            if ($script:CAP.ContainsKey($v) -and $script:CAP[$v][$ECLevel][$mi] -ge $len) { 
-                $Version = $v; break 
+        # Try versions 1 to 40
+        for ($v = 1; $v -le 40; $v++) {
+            # Calculate total bits needed for this version
+            $totalBits = 0
+            foreach ($seg in $segments) {
+                # Mode indicator (4 or 0 for ECI header special case? No, ECI is 4 bits: 0111)
+                $totalBits += 4 
+                
+                if ($seg.Mode -eq 'ECI') {
+                    # ECI payload bits (0-127: 8, 128-16383: 16, >: 24)
+                    $val = [int]$seg.Data
+                    if ($val -lt 128) { $totalBits += 8 } 
+                    elseif ($val -lt 16384) { $totalBits += 16 } 
+                    else { $totalBits += 24 }
+                } else {
+                    # Character Count Indicator
+                    $cb = switch ($seg.Mode) { 
+                        'N' { if($v -le 9){10} elseif($v -le 26){12} else{14} } 
+                        'A' { if($v -le 9){9}  elseif($v -le 26){11} else{13} } 
+                        'B' { if($v -le 9){8}  else{16} }
+                        'K' { if($v -le 9){8}  elseif($v -le 26){10} else{12} }
+                    }
+                    $totalBits += $cb
+                    
+                    # Data bits (Calculated below)
+                    $txt = $seg.Data
+                    # Correction: N/A formulas above are approximations. Using exact logic:
+                    if ($seg.Mode -eq 'N') {
+                        $full = [Math]::Floor($txt.Length / 3); $rem = $txt.Length % 3
+                        $bitsRem = 0; if($rem -eq 1){$bitsRem=4} elseif($rem -eq 2){$bitsRem=7}
+                        $totalBits += $full * 10 + $bitsRem
+                    } elseif ($seg.Mode -eq 'A') {
+                        $full = [Math]::Floor($txt.Length / 2); $rem = $txt.Length % 2
+                        $bitsRem = 0; if($rem -eq 1){$bitsRem=6}
+                        $totalBits += $full * 11 + $bitsRem
+                    } elseif ($seg.Mode -eq 'B') {
+                        $totalBits += [Text.Encoding]::UTF8.GetByteCount($txt) * 8
+                    } elseif ($seg.Mode -eq 'K') {
+                        $totalBits += $txt.Length * 13
+                    }
+                }
+            }
+            
+            # Check Capacity
+            # $script:SPEC[$v$ec].D is in Bytes -> * 8 for bits
+            # Or use CAP table? CAP table stores chars, SPEC stores Bytes. Use SPEC for bits.
+            if (-not $script:SPEC.ContainsKey("$v$ECLevel")) { continue }
+            $capacityBits = $script:SPEC["$v$ECLevel"].D * 8
+            
+            if ($capacityBits -ge $totalBits) {
+                $Version = $v
+                break
             }
         }
-        if ($Version -eq 0) { throw "Datos muy largos (max soportado: Version 10)" }
+        
+        if ($Version -eq 0) { throw "Datos muy largos (max soportado: Version 40)" }
     }
     
     Write-Host "Version: $Version ($(GetSize $Version)x$(GetSize $Version))" -ForegroundColor Cyan
     Write-Host "EC: $ECLevel" -ForegroundColor Cyan
     
     Write-Host "Codificando..." -ForegroundColor Yellow
-    $dataCW = Encode $Data $Version $ECLevel
+    $dataCW = Encode $segments $Version $ECLevel
     
     Write-Host "Reed-Solomon..." -ForegroundColor Yellow
     $allCW = BuildCW $dataCW $Version $ECLevel
@@ -719,6 +831,7 @@ function Start-BatchProcessing {
     $suffix = Get-IniValue $iniContent "NombresArchivos" "Sufijo" ""
     $useTs = (Get-IniValue $iniContent "NombresArchivos" "IncluirTimestamp" "no") -eq "si"
     $tsFormat = Get-IniValue $iniContent "NombresArchivos" "FormatoFecha" "yyyyMMdd_HHmmss"
+    $eciVal = [int](Get-IniValue $iniContent "OpcionesQR" "ECI" "0")
     
     # Validar entrada
     $inputPath = Join-Path $PSScriptRoot $inputFile            
@@ -734,7 +847,7 @@ function Start-BatchProcessing {
     }
     
     # Procesar líneas
-    $lines = Get-Content $inputPath
+    $lines = Get-Content $inputPath -Encoding UTF8
     $count = 1
     
     foreach ($line in $lines) {
@@ -762,7 +875,7 @@ function Start-BatchProcessing {
         Write-Host "Procesando [$count]: $line" -ForegroundColor Gray
         Write-Host "Target: $finalPath" -ForegroundColor DarkGray
         try {
-            New-QRCode -Data $line -OutputPath $finalPath -ECLevel $ecLevel -ModuleSize $modSize
+            New-QRCode -Data $line -OutputPath $finalPath -ECLevel $ecLevel -ModuleSize $modSize -EciValue $eciVal
         } catch {
             Write-Host "Error generando QR para '$line': $_" -ForegroundColor Red
         }
