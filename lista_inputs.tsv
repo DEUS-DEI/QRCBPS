@@ -1,0 +1,14 @@
+# Lista de entrada para el Generador de Códigos QR
+# Cada línea será convertida en un código QR.
+# Se pueden agregar comentarios usando el símbolo #
+
+https://github.com/DEUS-DEI/qrps
+Antigravity AI - Powerful Coding Assistant
+0123456789ABCDEF
+Datos con caracteres especiales: ñ, á, é, í, ó, ú, Ü, ¿?, ¡!
+1234567890
+WIFI:S:MiRed;T:WPA;P:Contraseña123;;
+BEGIN:VCARD
+FN:Antigravity
+TEL:123456789
+END:VCARD

@@ -1,0 +1,69 @@
+# 🔳 Generador de Códigos QR Nativo (PowerShell)
+
+Este script proporciona una implementación **100% nativa en PowerShell** del estándar **ISO/IEC 18004** para la generación de códigos QR de alta fidelidad. Sin dependencias externas, permite generar imágenes profesionales listas para su uso industrial o comercial.
+
+## ✨ Características Principales
+
+*   **Simbología Estándar:** Soporte completo para **QR Modelo 2** (Versiones 1 a 40).
+*   **Segmentación Inteligente:** Motor dinámico que optimiza automáticamente el tamaño del código alternando entre modos:
+    *   🔢 **Numérico:** Máxima densidad para cifras.
+    *   🔠 **Alfanumérico:** Para texto simple y símbolos comunes.
+    *   🌐 **Byte (UTF-8):** Compatibilidad universal para tildes, eñes y caracteres especiales.
+    *   🇯🇵 **Kanji:** Soporte nativo para caracteres japoneses (Shift-JIS).
+*   **ECI (Extended Channel Interpretation):** Inserción automática de ECI 26 para que los escáneres identifiquen correctamente los datos en UTF-8.
+*   **Corrección de Errores (ECC):** Soporte total para niveles **L, M, Q y H**, garantizando legibilidad incluso en superficies dañadas.
+*   **Exportación Directa:** Genera archivos **PNG** nítidos con control total sobre el tamaño del módulo y bordes (quiet zone).
+
+---
+
+## 🚀 Guía de Inicio Rápido
+
+### Uso Directo por CLI
+```powershell
+# Generar un código simple
+.\QRCode.ps1 -Data "Hola mundo" -OutputPath "demo.png"
+
+# Con personalización avanzada
+.\QRCode.ps1 -Data "Mi Texto" -ECLevel "H" -ModuleSize 15 -OutputPath "personalizado.png"
+```
+
+### Procesamiento por Lotes (Batch)
+El script puede procesar múltiples entradas automáticamente:
+1.  Configura tus preferencias en `config.ini`.
+2.  Agrega los textos que deseas convertir en `lista_inputs.tsv`.
+3.  Ejecuta el script sin parámetros:
+    ```powershell
+    .\QRCode.ps1
+    ```
+
+---
+
+## 🛠️ Configuración (`config.ini`)
+
+| Opción | Descripción |
+| :--- | :--- |
+| `ArchivoEntrada` | Ruta al archivo con los textos a procesar. |
+| `CarpetaSalida` | Directorio donde se guardarán las imágenes. |
+| `NivelEC` | Nivel de recuperación (L, M, Q, H). |
+| `TamanoModulo` | Tamaño en píxeles de cada cuadro (punto) del QR. |
+| `Version` | Versión fija (1-40) o `0` para automático. |
+| `ECI` | ID de interpretación de canal (ej: 26 para UTF-8). |
+
+---
+
+## 📋 Formato de Entrada (`lista_inputs.tsv`)
+
+El archivo debe contener un texto por línea. El script ignorará las líneas que comiencen con `#` y espacios en blanco.
+
+```text
+# Ejemplo de lista
+https://www.google.com
+ID_USUARIO_123456
+Dato con caracteres españoles (ñ, á, é...)
+```
+
+---
+
+## ⚙️ Requisitos
+*   **Windows PowerShell 5.1** o superior.
+*   No requiere privilegios de administrador para la mayoría de las operaciones.

@@ -9,7 +9,10 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$false)][string]$Data,
+    [Parameter(Position=0, Mandatory=$false)][string]$Data,
+    [Parameter(Mandatory=$false)][string]$InputFile,
+    [Parameter(Mandatory=$false)][string]$OutputDir,
+    [Parameter(Mandatory=$false)][string]$IniPath = ".\config.ini",
     [string]$OutputPath = "",
     [ValidateSet('L','M','Q','H')][string]$ECLevel = 'M',
     [int]$Version = 0,
@@ -861,34 +864,80 @@ function Get-IniValue($content, $section, $key, $defaultValue) {
 }
 
 function Start-BatchProcessing {
-    param([string]$IniPath = ".\config.ini")
+    param(
+        [string]$IniPath = ".\config.ini",
+        [string]$InputFileOverride = "",
+        [string]$OutputDirOverride = ""
+    )
     
-    if (-not (Test-Path $IniPath)) { return }
+    if (-not (Test-Path $IniPath) -and [string]::IsNullOrEmpty($InputFileOverride)) { 
+        Write-Host "No se encontró config.ini ni archivo de entrada." -ForegroundColor Red
+        return 
+    }
     
-    Write-Host "`n=== PROCESAMIENTO POR LOTES (CONFIG.INI) ===" -ForegroundColor Cyan
-    $iniContent = Get-Content $IniPath -Raw
+    $iniContent = if (Test-Path $IniPath) { Get-Content $IniPath -Raw } else { "" }
     
-    # Leer configuración
-    $inputFile = Get-IniValue $iniContent "Configuracion" "ArchivoEntrada" ".\lista_inputs.txt"
-    $outDir = Get-IniValue $iniContent "Configuracion" "CarpetaSalida" ".\salida_qr"
-    $ecLevel = Get-IniValue $iniContent "OpcionesQR" "NivelEC" "M"
-    $modSize = [int](Get-IniValue $iniContent "OpcionesQR" "TamanoModulo" "10")
-    $prefix = Get-IniValue $iniContent "NombresArchivos" "Prefijo" "qr_"
-    $useConsec = (Get-IniValue $iniContent "NombresArchivos" "UseConsecutivo" "si") -eq "si"
-    $suffix = Get-IniValue $iniContent "NombresArchivos" "Sufijo" ""
-    $useTs = (Get-IniValue $iniContent "NombresArchivos" "IncluirTimestamp" "no") -eq "si"
-    $tsFormat = Get-IniValue $iniContent "NombresArchivos" "FormatoFecha" "yyyyMMdd_HHmmss"
-    $eciVal = [int](Get-IniValue $iniContent "OpcionesQR" "ECI" "0")
+    # 1. Determinar Archivo de Entrada
+    $selectedFile = ""
+    if (-not [string]::IsNullOrEmpty($InputFileOverride)) {
+        $selectedFile = $InputFileOverride
+    } else {
+        $inputFilesRaw = Get-IniValue $iniContent "QRPS" "QRPS_ArchivoEntrada" "lista_inputs.tsv"
+        $inputFiles = $inputFilesRaw -split ',' | ForEach-Object { $_.Trim() }
+        
+        if ($inputFiles.Count -eq 1) {
+            $selectedFile = $inputFiles[0]
+        } else {
+            Write-Host "`n=== SELECCIÓN DE LISTA DE ENTRADA ===" -ForegroundColor Cyan
+            for ($i=0; $i -lt $inputFiles.Count; $i++) {
+                $prefixMenu = if ($i -eq 0) { " [ENTER/1]" } else { " [$($i+1)]" }
+                Write-Host "$prefixMenu $($inputFiles[$i])"
+            }
+            Write-Host "Seleccione (Default en 5s: $($inputFiles[0])): " -NoNewline -ForegroundColor Yellow
+            
+            $timeout = 5
+            $choice = -1
+            $start = [DateTime]::Now
+            while (([DateTime]::Now - $start).TotalSeconds -lt $timeout) {
+                if ($Host.UI.RawUI.KeyAvailable) {
+                    $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    if ($key.VirtualKeyCode -eq 13) { $choice = 0; break } # Enter
+                    if ($key.Character -match '[1-9]') {
+                        $idx = [int][string]$key.Character - 1
+                        if ($idx -lt $inputFiles.Count) { $choice = $idx; break }
+                    }
+                }
+                Start-Sleep -Milliseconds 100
+            }
+            
+            $selectedFile = if ($choice -ne -1) { $inputFiles[$choice] } else { $inputFiles[0] }
+            Write-Host "`nUsando: $selectedFile" -ForegroundColor Cyan
+        }
+    }
+
+    # 2. Leer resto de configuración
+    $outDir = if (-not [string]::IsNullOrEmpty($OutputDirOverride)) { $OutputDirOverride } else { Get-IniValue $iniContent "QRPS" "QRPS_CarpetaSalida" "salida_qr" }
+    $ecLevel = Get-IniValue $iniContent "QRPS" "QRPS_NivelEC" "M"
+    $modSize = [int](Get-IniValue $iniContent "QRPS" "QRPS_TamanoModulo" "10")
+    $version = [int](Get-IniValue $iniContent "QRPS" "QRPS_Version" "0")
+    $prefix = Get-IniValue $iniContent "QRPS" "QRPS_Prefijo" "qr_"
+    $useConsec = (Get-IniValue $iniContent "QRPS" "QRPS_UseConsecutivo" "si") -eq "si"
+    $suffix = Get-IniValue $iniContent "QRPS" "QRPS_Sufijo" ""
+    $useTs = (Get-IniValue $iniContent "QRPS" "QRPS_IncluirTimestamp" "no") -eq "si"
+    $tsFormat = Get-IniValue $iniContent "QRPS" "QRPS_FormatoFecha" "yyyyMMdd_HHmmss"
+    $eciVal = [int](Get-IniValue $iniContent "QRPS" "QRPS_ECI" "0")
+    $colIndex = [int](Get-IniValue $iniContent "QRPS" "QRPS_IndiceColumna" "1") - 1
+    if ($colIndex -lt 0) { $colIndex = 0 }
     
     # Validar entrada
-    $inputPath = Join-Path $PSScriptRoot $inputFile            
+    $inputPath = if ([System.IO.Path]::IsPathRooted($selectedFile)) { $selectedFile } else { Join-Path $PSScriptRoot $selectedFile }
     if (-not (Test-Path $inputPath)) {
-        Write-Host "Archivo de entrada no encontrado: $inputFile" -ForegroundColor Red
+        Write-Host "Archivo de entrada no encontrado: $selectedFile" -ForegroundColor Red
         return
     }
     
-    # Crear carpeta salida
-    $outPath = Join-Path $PSScriptRoot $outDir
+    # Determinar carpeta salida
+    $outPath = if ([System.IO.Path]::IsPathRooted($outDir)) { $outDir } else { Join-Path $PSScriptRoot $outDir }
     if (-not (Test-Path $outPath)) {
         New-Item -ItemType Directory -Force -Path $outPath | Out-Null
     }
@@ -898,16 +947,21 @@ function Start-BatchProcessing {
     $count = 1
     
     foreach ($line in $lines) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $trim = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trim) -or $trim.StartsWith("#")) { continue }
+        
+        # Procesar columnas si hay tabs
+        $cols = $trim -split "\t"
+        $dataToEncode = if ($colIndex -lt $cols.Count) { $cols[$colIndex].Trim() } else { $cols[0].Trim() }
         
         # Determinar nombre base
         $baseName = ""
         if ($useConsec) {
             $baseName = "$count"
         } else {
-            # Sanitizar nombre
-            $baseName = $line -replace '[^a-zA-Z0-9]', '_'
-            if ($baseName.Length -gt 20) { $baseName = $baseName.Substring(0, 20) }
+            # Sanitizar nombre basado únicamente en los datos de la columna seleccionada
+            $baseName = $dataToEncode -replace '[^a-zA-Z0-9]', '_'
+            if ($baseName.Length -gt 30) { $baseName = $baseName.Substring(0, 30) }
         }
         
         # Construir nombre completo
@@ -919,12 +973,10 @@ function Start-BatchProcessing {
         
         $finalPath = Join-Path $outPath $name
         
-        Write-Host "Procesando [$count]: $line" -ForegroundColor Gray
-        Write-Host "Target: $finalPath" -ForegroundColor DarkGray
         try {
-            New-QRCode -Data $line -OutputPath $finalPath -ECLevel $ecLevel -ModuleSize $modSize -EciValue $eciVal
+            New-QRCode -Data $dataToEncode -OutputPath $finalPath -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal
         } catch {
-            Write-Host "Error generando QR para '$line': $_" -ForegroundColor Red
+            Write-Host "Error generando QR para '$dataToEncode': $_" -ForegroundColor Red
         }
         $count++
     }
@@ -935,15 +987,16 @@ function Start-BatchProcessing {
 # Ejecutar proceso batch si existe config.ini y se llama el script directamente
 # ENTRY POINT
 if (-not [string]::IsNullOrEmpty($Data)) {
-    # Modo CLI Directo
-    New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -ShowConsole:$ShowConsole
-} elseif ($MyInvocation.InvocationName -ne '.') {
-    # Modo Batch Automático
-    if (Test-Path ".\config.ini") {
-        Start-BatchProcessing
+    # Modo CLI Directo (Un solo QR)
+    New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -ShowConsole:$ShowConsole
+} else {
+    # Modo Batch (Por Archivo o Config)
+    if (-not [string]::IsNullOrEmpty($InputFile) -or (Test-Path $IniPath)) {
+        Start-BatchProcessing -IniPath $IniPath -InputFileOverride $InputFile -OutputDirOverride $OutputDir
     } else {
-        Write-Host "`n  QR Generator FINAL - PowerShell Nativo`n" -ForegroundColor Magenta
-        Write-Host "  Uso CLI:   .\QRCode.ps1 -Data 'Texto' -OutputPath 'out.png'"
-        Write-Host "  Uso Batch: Crear config.ini y lista_inputs.txt"
+        Write-Host "`n  🔳 QR Generator FINAL - PowerShell Nativo`n" -ForegroundColor Magenta
+        Write-Host "  Uso CLI QR:      .\QRCode.ps1 -Data 'Texto' -OutputPath 'out.png'"
+        Write-Host "  Uso CLI Batch:   .\QRCode.ps1 -InputFile 'lista.tsv' -OutputDir 'resultados'"
+        Write-Host "  Uso Automático:  Crear config.ini y ejecutar .\QRCode.ps1"
     }
 }
