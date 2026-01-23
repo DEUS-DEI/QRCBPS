@@ -1,14 +1,66 @@
-# Lista de entrada para el Generador de Códigos QR
-# Cada línea será convertida en un código QR.
-# Se pueden agregar comentarios usando el símbolo #
+# Formato: DATOS	TIPO_QR
+# Cada línea contiene el texto a codificar en la primera columna y el tipo de QR en la segunda
 
-https://github.com/DEUS-DEI/qrps
-Antigravity AI - Powerful Coding Assistant
-0123456789ABCDEF
-Datos con caracteres especiales: ñ, á, é, í, ó, ú, Ü, ¿?, ¡!
-1234567890
-WIFI:S:MiRed;T:WPA;P:Contraseña123;;
+# URLs
+https://github.com/DEUS-DEI/qrps	URL
+https://www.antigravity-ai.com	URL
+https://es.wikipedia.org	URL
+
+# Texto Plano
+Antigravity AI - Powerful Coding Assistant	TEXTO_PLANO
+Hello World	TEXTO_PLANO
+QR Code Generator	TEXTO_PLANO
+
+# Alfanumérico
+0123456789ABCDEF	ALFANUMERICO
+ABC123DEF456	ALFANUMERICO
+
+# Numérico
+1234567890	NUMERICO
+9876543210	NUMERICO
+
+# Texto Especial
+Datos con caracteres especiales: ñ, á, é, í, ó, ú, Ü, ¿?, ¡!	ESPECIAL
+Prueba de UTF-8: 你好世界	ESPECIAL
+
+# WiFi
+WIFI:S:MiRed;T:WPA;P:Contraseña123;;	WIFI
+WIFI:S:GuestNetwork;T:WPA;P:12345678;;	WIFI
+
+# vCard (Contacto)
 BEGIN:VCARD
-FN:Antigravity
-TEL:123456789
-END:VCARD
+VERSION:3.0
+FN:Juan Pérez
+TEL:+34912345678
+EMAIL:juan@example.com
+END:VCARD	VCARD
+
+# Email
+mailto:correo@example.com	EMAIL
+mailto:info@antigravity.com	EMAIL
+
+# Teléfono
+tel:+34912345678	TELEFONO
+tel:+1555123456	TELEFONO
+
+# SMS
+smsto:+34912345678:Hola%20Mundo	SMS
+smsto:+555123456:QR%20Test	SMS
+
+# Geolocación
+geo:40.7128,-74.0060	GEO
+geo:37.7749,-122.4194	GEO
+
+# Evento (iCalendar)
+BEGIN:VEVENT
+SUMMARY:Reunión QR
+DTSTART:20260124T100000Z
+END:VEVENT	EVENTO
+
+# Multilínea
+Línea 1
+Línea 2
+Línea 3	MULTILINEA
+Primera línea
+Segunda línea
+Tercera línea	MULTILINEA

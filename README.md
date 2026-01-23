@@ -2,6 +2,26 @@
 
 Este script proporciona una implementación **100% nativa en PowerShell** del estándar **ISO/IEC 18004** para la generación de códigos QR de alta fidelidad. Sin dependencias externas, permite generar imágenes profesionales listas para su uso industrial o comercial.
 
+## ⚙️ Requisitos
+
+- **PowerShell 7.x (Core)** - Recomendado para mejor compatibilidad
+- **Windows 10/11** (o PowerShell Core en macOS/Linux)
+- **Acceso a System.Drawing** para exportación PNG
+
+### Instalación de PowerShell 7
+Si aún tienes PowerShell 5.1, instala PowerShell 7 (Core):
+
+```powershell
+# Opción 1: Con winget (Windows 11/10 con winget)
+winget install Microsoft.PowerShell
+
+# Opción 2: Descargar desde
+# https://github.com/PowerShell/PowerShell/releases
+
+# Verificar la instalación
+pwsh -Version
+```
+
 ## ✨ Características Principales
 
 *   **Simbología Estándar:** Soporte completo para **QR Modelo 2** (Versiones 1 a 40).
@@ -17,6 +37,17 @@ Este script proporciona una implementación **100% nativa en PowerShell** del es
 ---
 
 ## 🚀 Guía de Inicio Rápido
+
+### Ejecución con PowerShell 7
+Para ejecutar con PowerShell 7 explícitamente:
+
+```powershell
+# Opción 1: Llamar directamente a pwsh (si está en PATH)
+pwsh -NoProfile -File ".\QRCode.ps1" -Data "Hola mundo" -OutputPath "demo.png"
+
+# Opción 2: Ruta completa
+C:\Users\[USERNAME]\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoProfile .\QRCode.ps1
+```
 
 ### Uso Directo por CLI
 ```powershell

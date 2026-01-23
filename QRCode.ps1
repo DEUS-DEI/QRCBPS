@@ -857,7 +857,10 @@ function Get-IniValue($content, $section, $key, $defaultValue) {
         if ($inSection -and $trim -match "^\[") { break } 
         
         if ($inSection -and $trim -match "^$key\s*=(.*)") {
-            return $matches[1].Trim()
+            # Asegurar que devolvemos un string, no un array
+            $value = $matches[1]
+            if ($value -is [array]) { $value = $value[0] }
+            return $value.Trim()
         }
     }
     return $defaultValue
@@ -883,7 +886,12 @@ function Start-BatchProcessing {
         $selectedFile = $InputFileOverride
     } else {
         $inputFilesRaw = Get-IniValue $iniContent "QRPS" "QRPS_ArchivoEntrada" "lista_inputs.tsv"
-        $inputFiles = $inputFilesRaw -split ',' | ForEach-Object { $_.Trim() }
+        # Asegurar que es un array si tiene múltiples elementos
+        if ($inputFilesRaw -match ',') {
+            $inputFiles = @($inputFilesRaw -split ',' | ForEach-Object { $_.Trim() })
+        } else {
+            $inputFiles = @($inputFilesRaw.Trim())
+        }
         
         if ($inputFiles.Count -eq 1) {
             $selectedFile = $inputFiles[0]
