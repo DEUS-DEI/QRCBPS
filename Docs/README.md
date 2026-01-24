@@ -29,8 +29,8 @@ pwsh -Version
     *   🔢 **Numérico:** Máxima densidad para cifras.
     *   🔠 **Alfanumérico:** Para texto simple y símbolos comunes.
     *   🌐 **Byte (UTF-8):** Compatibilidad universal para tildes, eñes y caracteres especiales.
-    *   🇯🇵 **Kanji:** Soporte nativo para caracteres japoneses (Shift-JIS).
 *   **ECI (Extended Channel Interpretation):** Inserción automática de ECI 26 para que los escáneres identifiquen correctamente los datos en UTF-8.
+*   **Kanji (Shift-JIS):** Codificador disponible, sin selección automática de segmentos.
 *   **Corrección de Errores (ECC):** Soporte total para niveles **L, M, Q y H**, garantizando legibilidad incluso en superficies dañadas.
 *   **Exportación Directa:** Genera archivos **PNG** nítidos con control total sobre el tamaño del módulo y bordes (quiet zone).
 
@@ -84,13 +84,12 @@ El script puede procesar múltiples entradas automáticamente:
 
 ## 📋 Formato de Entrada (`lista_inputs.tsv`)
 
-El archivo debe contener un texto por línea. El script ignorará las líneas que comiencen con `#` y espacios en blanco.
+El archivo puede contener columnas separadas por tabulación. El script usa la columna indicada en `IndiceColumna` para obtener el dato a codificar y puede ignorar columnas extra usadas como referencia.
 
 ```text
-# Ejemplo de lista
-https://www.google.com
-ID_USUARIO_123456
-Dato con caracteres españoles (ñ, á, é...)
+https://www.google.com	URL	Modelo2-Auto	.\QRCode.ps1 -Data "https://www.google.com" -OutputPath "qr_url.png"
+1234567890	NUMERICO	EC-L	.\QRCode.ps1 -Data "1234567890" -ECLevel "L" -OutputPath "qr_ec_l.png"
+BEGIN:VCARD...END:VCARD	VCARD	Modelo2-Auto	.\QRCode.ps1 -Data "BEGIN:VCARD...END:VCARD" -OutputPath "qr_vcard.png"
 ```
 
 ---

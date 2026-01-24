@@ -13,7 +13,8 @@ Este generador de códigos QR implementa una **solución 100% nativa en PowerShe
 | **Estándar Base** | ✅ | ISO/IEC 18004 (QR Model 2) | Implementación completa |
 | **Versiones Soportadas** | ✅ | V1-V40 (21x21 a 177x177) | Rango completo estándar |
 | **Niveles de Corrección** | ✅ | L, M, Q, H (7%-30%) | Todos los niveles ISO |
-| **Modos de Codificación** | ✅ | Numérico, Alfanumérico, Byte, Kanji | 4 modos principales |
+| **Modos de Codificación** | ✅ | Numérico, Alfanumérico, Byte (UTF-8) | Segmentación automática N/A/B |
+| **Modo Kanji (Shift-JIS)** | ⚠️ | Codificador disponible | Sin selección automática |
 | **Segmentación Automática** | ✅ | Motor inteligente multi-modo | Optimización de capacidad |
 | **Reed-Solomon ECC** | ✅ | Galois Field GF(256) | Algoritmo estándar |
 | **Patrones Funcionales** | ✅ | Finder, Timing, Alignment | Todos los patrones ISO |
@@ -22,6 +23,9 @@ Este generador de códigos QR implementa una **solución 100% nativa en PowerShe
 | **Información de Versión** | ✅ | V7-V40 con BCH(18,6) | Para versiones ≥7 |
 | **Zona Silenciosa** | ✅ | 4 módulos mínimos | Cumple especificación |
 | **Codificación UTF-8** | ✅ | ECI 26 automático | Soporte internacional |
+| **Structured Append** | ❌ | ISO/IEC 18004 | No implementado |
+| **FNC1 / GS1** | ❌ | ISO/IEC 18004 / GS1 | No implementado |
+| **Micro QR / rMQR** | ❌ | ISO/IEC 18004 / ISO/IEC 23941 | No implementado |
 | **Exportación PNG** | ✅ | Escalado configurable | Formato estándar |
 
 ---
@@ -30,9 +34,8 @@ Este generador de códigos QR implementa una **solución 100% nativa en PowerShe
 
 ### **Codificación de Datos**
 - **Modo Numérico**: Optimización para dígitos (0-9) con empaquetado de 3 dígitos en 10 bits
-- **Modo Alfanumérico**: Soporte para 45 caracteres estándar con empaquetado de 2 caracteres en 11 bits  
+- **Modo Alfanumérico**: Soporte para 45 caracteres estándar con empaquetado de 2 caracteres en 11 bits
 - **Modo Byte**: Codificación UTF-8 completa para caracteres internacionales
-- **Modo Kanji**: Soporte nativo para caracteres japoneses (Shift-JIS)
 - **ECI (Extended Channel Interpretation)**: Inserción automática de ECI 26 para UTF-8
 
 ### **Corrección de Errores**
@@ -49,7 +52,7 @@ Este generador de códigos QR implementa una **solución 100% nativa en PowerShe
 - **Dark Module**: Módulo oscuro fijo en posición (4V+9, 8)
 
 ### **Optimizaciones Avanzadas**
-- **Segmentación Inteligente**: Cambio automático entre modos para maximizar eficiencia
+- **Segmentación Inteligente**: Cambio automático entre modos Numérico/Alfanumérico/Byte
 - **Selección de Versión**: Cálculo automático de la versión mínima requerida
 - **Evaluación de Máscaras**: 4 reglas de penalización para seleccionar la mejor máscara
 - **Capacidad Máxima**: Tablas precalculadas para todas las combinaciones versión/EC
@@ -135,11 +138,12 @@ Patrón 7: ((i+j mod 2) + (ij mod 3)) mod 2 = 0
 ### **Datos de Prueba Incluidos**
 - ✅ URLs (https://github.com/DEUS-DEI/qrps)
 - ✅ Texto simple (Antigravity AI - Powerful Coding Assistant)
-- ✅ Hexadecimal (0123456789ABCDEF)
+- ✅ Alfanumérico (0123456789ABCDEF)
 - ✅ Caracteres especiales (ñ, á, é, í, ó, ú, Ü, ¿?, ¡!)
 - ✅ Números puros (1234567890)
 - ✅ WiFi QR (WIFI:S:MiRed;T:WPA;P:Contraseña123;;)
 - ✅ vCard (BEGIN:VCARD...END:VCARD)
+- ✅ Email/SMS/Teléfono/Geo (payload estándar)
 
 ### **Compatibilidad de Escáneres**
 - **Smartphones**: iOS Camera, Android Camera, WhatsApp
@@ -168,13 +172,22 @@ Patrón 7: ((i+j mod 2) + (ij mod 3)) mod 2 = 0
 
 El generador implementa **100% de las especificaciones críticas** del estándar ISO/IEC 18004, proporcionando:
 
-- ✅ **Compatibilidad Total**: Con todos los escáneres estándar
+- ✅ **Compatibilidad Total**: Con todos los escáneres estándar para QR Model 2
 - ✅ **Calidad Profesional**: Apto para uso comercial e industrial  
 - ✅ **Flexibilidad**: Configuración avanzada y procesamiento por lotes
 - ✅ **Rendimiento**: Optimizado para PowerShell nativo
 - ✅ **Mantenibilidad**: Código limpio y bien documentado
 
-**Recomendación**: ✅ **APROBADO** para uso en producción según estándares ISO/IEC 18004.
+**Recomendación**: ✅ **APROBADO** para uso en producción según estándares ISO/IEC 18004 (QR Model 2).
+
+---
+
+## ⚠️ Limitaciones Actuales (Modelo 2)
+
+- **Modo Kanji**: El codificador existe, pero la segmentación automática no lo activa
+- **Structured Append**: No disponible (ISO/IEC 18004 Modo 3)
+- **FNC1/GS1**: No disponible (Modos 5 y 9)
+- **Variantes Micro/rMQR**: No disponibles
 
 ---
 

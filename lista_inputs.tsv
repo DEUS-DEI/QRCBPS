@@ -1,24 +1,39 @@
-https://github.com/DEUS-DEI/qrps	URL
-https://www.antigravity-ai.com	URL
-https://es.wikipedia.org	URL
+https://github.com/DEUS-DEI/qrps	URL	Modelo2-Auto	.\QRCode.ps1 -Data "https://github.com/DEUS-DEI/qrps" -OutputPath "qr_url_github.png"
+https://www.antigravity-ai.com	URL	Modelo2-Auto	.\QRCode.ps1 -Data "https://www.antigravity-ai.com" -OutputPath "qr_url_antigravity.png"
+https://es.wikipedia.org	URL	Modelo2-Auto	.\QRCode.ps1 -Data "https://es.wikipedia.org" -OutputPath "qr_url_wikipedia.png"
 
 # Texto Plano
-Antigravity AI - Powerful Coding Assistant	TEXTO_PLANO
-Hello World	TEXTO_PLANO
-QR Code Generator	TEXTO_PLANO
+Antigravity AI - Powerful Coding Assistant	TEXTO_PLANO	Modelo2-Auto	.\QRCode.ps1 -Data "Antigravity AI - Powerful Coding Assistant" -OutputPath "qr_texto_aa.png"
+Hello World	TEXTO_PLANO	Modelo2-Auto	.\QRCode.ps1 -Data "Hello World" -OutputPath "qr_texto_hello.png"
+QR Code Generator	TEXTO_PLANO	Modelo2-Auto	.\QRCode.ps1 -Data "QR Code Generator" -OutputPath "qr_texto_qrgen.png"
 
 # Alfanumérico
-0123456789ABCDEF	ALFANUMERICO
-ABC123DEF456	ALFANUMERICO
+0123456789ABCDEF	ALFANUMERICO	Modelo2-Auto	.\QRCode.ps1 -Data "0123456789ABCDEF" -OutputPath "qr_alfanum_1.png"
+ABC123DEF456	ALFANUMERICO	Modelo2-Auto	.\QRCode.ps1 -Data "ABC123DEF456" -OutputPath "qr_alfanum_2.png"
 
 # Numérico
-1234567890	NUMERICO
-9876543210	NUMERICO
+1234567890	NUMERICO	Modelo2-Auto	.\QRCode.ps1 -Data "1234567890" -OutputPath "qr_num_1.png"
+9876543210	NUMERICO	Modelo2-Auto	.\QRCode.ps1 -Data "9876543210" -OutputPath "qr_num_2.png"
 
 # Texto Especial
-Datos con caracteres especiales: ñ, á, é, í, ó, ú, Ü, ¿?, ¡!	ESPECIAL
-Prueba de UTF-8: 你好世界	ESPECIAL
+Datos con caracteres especiales: ñ, á, é, í, ó, ú, Ü, ¿?, ¡!	UTF8	Modelo2-Auto	.\QRCode.ps1 -Data "Datos con caracteres especiales: ñ, á, é, í, ó, ú, Ü, ¿?, ¡!" -OutputPath "qr_utf8_es.png"
+Prueba de UTF-8: 你好世界	UTF8	Modelo2-Auto	.\QRCode.ps1 -Data "Prueba de UTF-8: 你好世界" -OutputPath "qr_utf8_zh.png"
 
 # WiFi
-WIFI:S:MiRed;T:WPA;P:Contraseña123;;	WIFI
-WIFI:S:GuestNetwork;T:WPA;P:12345678;;	WIFI
+WIFI:S:MiRed;T:WPA;P:Contraseña123;;	WIFI	Modelo2-Auto	.\QRCode.ps1 -Data "WIFI:S:MiRed;T:WPA;P:Contraseña123;;" -OutputPath "qr_wifi_mired.png"
+WIFI:S:GuestNetwork;T:WPA;P:12345678;;	WIFI	Modelo2-Auto	.\QRCode.ps1 -Data "WIFI:S:GuestNetwork;T:WPA;P:12345678;;" -OutputPath "qr_wifi_guest.png"
+MATMSG:TO:soporte@ejemplo.com;SUB:Consulta;BODY:Hola;;	EMAIL	Modelo2-Auto	.\QRCode.ps1 -Data "MATMSG:TO:soporte@ejemplo.com;SUB:Consulta;BODY:Hola;;" -OutputPath "qr_email.png"
+tel:+34911111222	TEL	Modelo2-Auto	.\QRCode.ps1 -Data "tel:+34911111222" -OutputPath "qr_tel.png"
+SMSTO:+34911111222:Hola	SMS	Modelo2-Auto	.\QRCode.ps1 -Data "SMSTO:+34911111222:Hola" -OutputPath "qr_sms.png"
+geo:40.4168,-3.7038	GEO	Modelo2-Auto	.\QRCode.ps1 -Data "geo:40.4168,-3.7038" -OutputPath "qr_geo.png"
+BEGIN:VCARD;VERSION:3.0;FN:Juan Perez;TEL:+34911111222;EMAIL:juan@ejemplo.com;END:VCARD	VCARD	Modelo2-Auto	.\QRCode.ps1 -Data "BEGIN:VCARD;VERSION:3.0;FN:Juan Perez;TEL:+34911111222;EMAIL:juan@ejemplo.com;END:VCARD" -OutputPath "qr_vcard.png"
+MECARD:N:Perez,Juan;TEL:+34911111222;EMAIL:juan@ejemplo.com;;	MECARD	Modelo2-Auto	.\QRCode.ps1 -Data "MECARD:N:Perez,Juan;TEL:+34911111222;EMAIL:juan@ejemplo.com;;" -OutputPath "qr_mecard.png"
+BEGIN:VEVENT;SUMMARY:Reunion;DTSTART:20260124T100000Z;DTEND:20260124T110000Z;END:VEVENT	CALENDAR	Modelo2-Auto	.\QRCode.ps1 -Data "BEGIN:VEVENT;SUMMARY:Reunion;DTSTART:20260124T100000Z;DTEND:20260124T110000Z;END:VEVENT" -OutputPath "qr_calendar.png"
+Prueba EC L	VARIANTE_EC	EC-L	.\QRCode.ps1 -Data "Prueba EC L" -ECLevel "L" -OutputPath "qr_ec_l.png"
+Prueba EC M	VARIANTE_EC	EC-M	.\QRCode.ps1 -Data "Prueba EC M" -ECLevel "M" -OutputPath "qr_ec_m.png"
+Prueba EC Q	VARIANTE_EC	EC-Q	.\QRCode.ps1 -Data "Prueba EC Q" -ECLevel "Q" -OutputPath "qr_ec_q.png"
+Prueba EC H	VARIANTE_EC	EC-H	.\QRCode.ps1 -Data "Prueba EC H" -ECLevel "H" -OutputPath "qr_ec_h.png"
+Prueba Version 1	VARIANTE_VERSION	V1	.\QRCode.ps1 -Data "Prueba Version 1" -Version 1 -OutputPath "qr_v1.png"
+Prueba Version 10	VARIANTE_VERSION	V10	.\QRCode.ps1 -Data "Prueba Version 10" -Version 10 -OutputPath "qr_v10.png"
+Prueba Version 40	VARIANTE_VERSION	V40	.\QRCode.ps1 -Data "Prueba Version 40" -Version 40 -OutputPath "qr_v40.png"
+Prueba ECI 26	VARIANTE_ECI	ECI-26	.\QRCode.ps1 -Data "Prueba ECI 26 ñ" -EciValue 26 -OutputPath "qr_eci_26.png"
