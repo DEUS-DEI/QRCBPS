@@ -1,7 +1,3 @@
-# Formato: DATOS	TIPO_QR
-# Cada línea contiene el texto a codificar en la primera columna y el tipo de QR en la segunda
-
-# URLs
 https://github.com/DEUS-DEI/qrps	URL
 https://www.antigravity-ai.com	URL
 https://es.wikipedia.org	URL
@@ -26,41 +22,3 @@ Prueba de UTF-8: 你好世界	ESPECIAL
 # WiFi
 WIFI:S:MiRed;T:WPA;P:Contraseña123;;	WIFI
 WIFI:S:GuestNetwork;T:WPA;P:12345678;;	WIFI
-
-# vCard (Contacto)
-BEGIN:VCARD
-VERSION:3.0
-FN:Juan Pérez
-TEL:+34912345678
-EMAIL:juan@example.com
-END:VCARD	VCARD
-
-# Email
-mailto:correo@example.com	EMAIL
-mailto:info@antigravity.com	EMAIL
-
-# Teléfono
-tel:+34912345678	TELEFONO
-tel:+1555123456	TELEFONO
-
-# SMS
-smsto:+34912345678:Hola%20Mundo	SMS
-smsto:+555123456:QR%20Test	SMS
-
-# Geolocación
-geo:40.7128,-74.0060	GEO
-geo:37.7749,-122.4194	GEO
-
-# Evento (iCalendar)
-BEGIN:VEVENT
-SUMMARY:Reunión QR
-DTSTART:20260124T100000Z
-END:VEVENT	EVENTO
-
-# Multilínea
-Línea 1
-Línea 2
-Línea 3	MULTILINEA
-Primera línea
-Segunda línea
-Tercera línea	MULTILINEA

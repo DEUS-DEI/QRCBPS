@@ -874,7 +874,7 @@ function Start-BatchProcessing {
     )
     
     if (-not (Test-Path $IniPath) -and [string]::IsNullOrEmpty($InputFileOverride)) { 
-        Write-Host "No se encontró config.ini ni archivo de entrada." -ForegroundColor Red
+        Write-Host "No se encontro config.ini ni archivo de entrada." -ForegroundColor Red
         return 
     }
     
@@ -896,7 +896,7 @@ function Start-BatchProcessing {
         if ($inputFiles.Count -eq 1) {
             $selectedFile = $inputFiles[0]
         } else {
-            Write-Host "`n=== SELECCIÓN DE LISTA DE ENTRADA ===" -ForegroundColor Cyan
+            Write-Host "`n=== SELECCION DE LISTA DE ENTRADA ===" -ForegroundColor Cyan
             for ($i=0; $i -lt $inputFiles.Count; $i++) {
                 $prefixMenu = if ($i -eq 0) { " [ENTER/1]" } else { " [$($i+1)]" }
                 Write-Host "$prefixMenu $($inputFiles[$i])"
@@ -1002,9 +1002,9 @@ if (-not [string]::IsNullOrEmpty($Data)) {
     if (-not [string]::IsNullOrEmpty($InputFile) -or (Test-Path $IniPath)) {
         Start-BatchProcessing -IniPath $IniPath -InputFileOverride $InputFile -OutputDirOverride $OutputDir
     } else {
-        Write-Host "`n  🔳 QR Generator FINAL - PowerShell Nativo`n" -ForegroundColor Magenta
+        Write-Host "`n  [QR] QR Generator FINAL - PowerShell Nativo`n" -ForegroundColor Magenta
         Write-Host "  Uso CLI QR:      .\QRCode.ps1 -Data 'Texto' -OutputPath 'out.png'"
         Write-Host "  Uso CLI Batch:   .\QRCode.ps1 -InputFile 'lista.tsv' -OutputDir 'resultados'"
-        Write-Host "  Uso Automático:  Crear config.ini y ejecutar .\QRCode.ps1"
+        Write-Host "  Uso Automatico:  Crear config.ini y ejecutar .\QRCode.ps1"
     }
 }
