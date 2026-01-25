@@ -279,6 +279,14 @@ Paridad: 8 bits (XOR de datos)
 ### **Anexo G**: Ejemplos de Codificación
 - ✅ **Implementado**: Ejemplos disponibles en documentación
 
+### **Anexo C**: Algoritmo de Decodificación de Referencia
+- ✅ **Implementado**: Lectura de formato (EC/máscara), desmascarado y extracción de datos para **QR Modelo 2**. Soporta segmentos Numérico, Alfanumérico, Byte (UTF-8), Kanji (Shift-JIS), ECI, FNC1 y Structured Append.
+- ℹ️ **Alcance**: Decodificación de referencia para validación; no incluye reconstrucción RS ni rMQR.
+
+### **Anexo D**: Parámetros de Calidad de Producción
+- ✅ **Implementado**: Métricas de densidad de módulos oscuros, conteo de bloques 2×2 y recomendación de quiet zone mínima.
+- ℹ️ **Uso**: Disponible vía flag `-QualityReport` en CLI.
+
 ---
 
 ## 🛠️ Roadmap de Implementación
@@ -303,6 +311,8 @@ Paridad: 8 bits (XOR de datos)
 
 ### **Fase 4: Características Especializadas** (En progreso)
 - [x] QR Code Model 1 (compatibilidad histórica)
+- [x] Decodificación de referencia (QR Modelo 2)
+- [x] Parámetros de calidad de producción (métricas)
 - [ ] SQRC (investigación de encriptación)
 - [ ] FrameQR (integración de diseño)
 - [ ] iQR Code (análisis de viabilidad)

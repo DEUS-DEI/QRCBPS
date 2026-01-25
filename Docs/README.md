@@ -37,6 +37,8 @@ pwsh -Version
 *   **Corrección de Errores (ECC):** Soporte total para niveles **L, M, Q y H**, garantizando legibilidad incluso en superficies dañadas.
 *   **Exportación Directa:** Genera archivos **PNG** y **SVG** nítidos con control total sobre el tamaño del módulo y bordes (quiet zone).
 *   **Selección Automática de Simbología:** Modo **AUTO** elige entre **QR**, **Micro** o **rMQR** según capacidad y tamaño óptimo.
+*   **Decodificación de Referencia:** Opción **-Decode** para leer el contenido del QR generado (Modelo 2).
+*   **Calidad de Producción:** Opción **-QualityReport** para métricas de densidad, bloques 2×2 y quiet zone sugerida.
 
 ---
 
@@ -86,6 +88,15 @@ C:\Users\[USERNAME]\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoProfile .\QR
 # AUTO con GS1 y Structured Append
 .\QRCode.ps1 -Data "01012345678901281724010110ABC" -Symbol "AUTO" -Fnc1First -OutputPath "auto_gs1.png"
 .\QRCode.ps1 -Data "Parte A" -Symbol "AUTO" -StructuredAppendTotal 2 -StructuredAppendIndex 0 -StructuredAppendParityData "Parte A|Parte B" -OutputPath "auto_sa_1.png"
+
+# Decodificación de referencia del QR generado
+.\QRCode.ps1 -Data "https://www.example.com" -Decode
+
+# Reporte de calidad de impresión
+.\QRCode.ps1 -Data "Factura 2026" -QualityReport
+
+# Combinado: decodificación + calidad
+.\QRCode.ps1 -Data "01012345678901281724010110ABC" -Symbol "QR" -ECLevel "M" -Decode -QualityReport
 ```
 
 #### Ejemplos adicionales
@@ -147,6 +158,9 @@ https://www.google.com	URL	Modelo2-Auto	.\QRCode.ps1 -Data "https://www.google.c
 BEGIN:VCARD...END:VCARD	VCARD	Modelo2-Auto	.\QRCode.ps1 -Data "BEGIN:VCARD...END:VCARD" -OutputPath "qr_vcard.png"
 01012345678901281724010110ABC	GS1	Modelo2-FNC1	.\QRCode.ps1 -Data "01012345678901281724010110ABC" -Fnc1First -OutputPath "qr_gs1.png"
 ```
+
+### Notas
+- La decodificación de referencia aplica a QR Modelo 2. Para rMQR, el reporte de calidad está disponible; la decodificación no forma parte de esta referencia.
 
 ---
 
