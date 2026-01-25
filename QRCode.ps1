@@ -612,8 +612,14 @@ function RMQREncode($txt, $spec, $ec) {
     $bits = New-Object System.Collections.ArrayList
     $de = if ($ec -eq 'H') { $spec.H2 } else { $spec.M }
     $capBits = $de.D * 8
-    $d = $de.D
-    $grp = if ($d -le 30) { 'S' } elseif ($d -le 84) { 'M' } else { 'L' }
+    $grp = Get-RMQRCountGroup $spec
+    $needsUtf8 = $false
+    foreach ($seg in $segments) {
+        if ($seg.Mode -eq 'B' -and $seg.Data -match '[^ -~]') { $needsUtf8 = $true; break }
+    }
+    if ($needsUtf8) {
+        $segments = @(@{Mode='ECI'; Data='26'}) + $segments
+    }
     foreach ($seg in $segments) {
         $mode = $seg.Mode; $txtS = $seg.Data
         switch ($mode) {
@@ -621,6 +627,20 @@ function RMQREncode($txt, $spec, $ec) {
             'A'{[void]$bits.AddRange(@(0,0,1,0))}
             'B'{[void]$bits.AddRange(@(0,1,0,0))}
             'K'{[void]$bits.AddRange(@(1,0,0,0))}
+            'ECI'{[void]$bits.AddRange(@(0,1,1,1))}
+        }
+        if ($mode -eq 'ECI') {
+            $val = [int]$txtS
+            if ($val -lt 128) {
+                for ($b=7; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+            } elseif ($val -lt 16384) {
+                [void]$bits.AddRange(@(1,0))
+                for ($b=13; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+            } else {
+                [void]$bits.AddRange(@(1,1,0))
+                for ($b=20; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+            }
+            continue
         }
         $cb = switch ($mode) {
             'N' { switch ($grp) { 'S'{10} 'M'{12} 'L'{14} } }
@@ -681,6 +701,13 @@ function RMQREncode($txt, $spec, $ec) {
         $dataCW += $byte
     }
     return $dataCW
+}
+
+function Get-RMQRCountGroup($spec) {
+    $vi = $spec.VI
+    if ($vi -le 11) { return 'S' }
+    elseif ($vi -le 21) { return 'M' }
+    else { return 'L' }
 }
 
 function GetGen($n) {
