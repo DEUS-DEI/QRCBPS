@@ -28,7 +28,9 @@ param(
     [int]$StructuredAppendTotal = 0,
     [int]$StructuredAppendParity = -1,
     [string]$StructuredAppendParityData = "",
-    [switch]$ShowConsole
+    [switch]$ShowConsole,
+    [switch]$Decode,
+    [switch]$QualityReport
 )
 
 # GF(256) lookup tables
@@ -1033,6 +1035,221 @@ function GetPenalty($m) {
     return $pen
 }
 
+function ReadFormatInfo($m) {
+    $size = $m.Size
+    $bits = @()
+    for ($i = 0; $i -lt 15; $i++) {
+        if ($i -le 5) { $bits += $m.Mod["8,$i"] }
+        elseif ($i -eq 6) { $bits += $m.Mod["8,7"] }
+        elseif ($i -eq 7) { $bits += $m.Mod["8,8"] }
+        elseif ($i -eq 8) { $bits += $m.Mod["7,8"] }
+        else { $row = 14 - $i; $bits += $m.Mod["$row,8"] }
+    }
+    $fmtStr = ($bits | ForEach-Object { $_ }) -join ""
+    $ec = $null; $mask = -1
+    foreach ($k in $script:FMT.Keys) {
+        if ($script:FMT[$k] -eq $fmtStr) {
+            $ec = $k.Substring(0,1)
+            $mask = [int]$k.Substring(1)
+            break
+        }
+    }
+    return @{ EC = $ec; Mask = $mask }
+}
+
+function UnmaskQR($m, $p) {
+    $r = NewM $m.Size
+    for ($row = 0; $row -lt $m.Size; $row++) {
+        for ($col = 0; $col -lt $m.Size; $col++) {
+            $r.Func["$row,$col"] = $m.Func["$row,$col"]
+            $v = $m.Mod["$row,$col"]
+            if (-not (IsF $m $row $col)) {
+                $mask = switch ($p) {
+                    0 { (($row + $col) % 2) -eq 0 }
+                    1 { ($row % 2) -eq 0 }
+                    2 { ($col % 3) -eq 0 }
+                    3 { (($row + $col) % 3) -eq 0 }
+                    4 { (([Math]::Floor($row / 2) + [Math]::Floor($col / 3)) % 2) -eq 0 }
+                    5 { ((($row * $col) % 2) + (($row * $col) % 3)) -eq 0 }
+                    6 { (((($row * $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
+                    7 { (((($row + $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
+                }
+                if ($mask) { $v = 1 - $v }
+            }
+            $r.Mod["$row,$col"] = $v
+        }
+    }
+    return $r
+}
+
+function ExtractBitsQR($m) {
+    $bits = New-Object System.Collections.ArrayList
+    $up = $true
+    for ($right = $m.Size - 1; $right -ge 1; $right -= 2) {
+        if ($right -eq 6) { $right = 5 }
+        $rows = if ($up) { ($m.Size - 1)..0 } else { 0..($m.Size - 1) }
+        foreach ($row in $rows) {
+            for ($dc = 0; $dc -le 1; $dc++) {
+                $col = $right - $dc
+                if (-not (IsF $m $row $col)) {
+                    [void]$bits.Add($m.Mod["$row,$col"])
+                }
+            }
+        }
+        $up = -not $up
+    }
+    return $bits
+}
+
+function DecodeQRStream($bytes, $ver) {
+    $bits = New-Object System.Collections.ArrayList
+    foreach ($b in $bytes) { for ($i=7;$i -ge 0;$i--){ [void]$bits.Add([int](($b -shr $i) -band 1)) } }
+    $idx = 0
+    $resultTxt = ""
+    $segs = @()
+    $eciActive = 26
+    while ($idx + 4 -le $bits.Count) {
+        $mi = ($bits[$idx] -shl 3) -bor ($bits[$idx+1] -shl 2) -bor ($bits[$idx+2] -shl 1) -bor $bits[$idx+3]
+        $idx += 4
+        if ($mi -eq 0) { break }
+        if ($mi -eq 7) {
+            if ($idx + 8 -le $bits.Count) {
+                $val = 0
+                for ($i=0;$i -lt 8;$i++){ $val = ($val -shl 1) -bor $bits[$idx+$i] }
+                $idx += 8
+                $eciActive = $val
+                $segs += @{Mode='ECI'; Data="$val"}
+                continue
+            }
+            break
+        }
+        if ($mi -eq 3) {
+            if ($idx + 16 -le $bits.Count) {
+                $idxVal = 0; $totVal = 0; $parVal = 0
+                for ($i=0;$i -lt 4;$i++){ $idxVal = ($idxVal -shl 1) -bor $bits[$idx+$i] }
+                for ($i=0;$i -lt 4;$i++){ $totVal = ($totVal -shl 1) -bor $bits[$idx+4+$i] }
+                for ($i=0;$i -lt 8;$i++){ $parVal = ($parVal -shl 1) -bor $bits[$idx+8+$i] }
+                $idx += 16
+                $segs += @{Mode='SA'; Index=$idxVal; Total=($totVal+1); Parity=$parVal}
+                continue
+            }
+            break
+        }
+        if ($mi -eq 5) { $segs += @{Mode='F1'}; continue }
+        if ($mi -eq 9) {
+            if ($idx + 8 -le $bits.Count) {
+                $app = 0; for ($i=0;$i -lt 8;$i++){ $app = ($app -shl 1) -bor $bits[$idx+$i] }
+                $idx += 8
+                $segs += @{Mode='F2'; AppIndicator=$app}
+                continue
+            }
+            break
+        }
+        $mode = switch ($mi) { 1{'N'} 2{'A'} 4{'B'} 8{'K'} default{'X'} }
+        if ($mode -eq 'X') { break }
+        $cb = switch ($mode) {
+            'N' { if($ver -le 9){10} elseif($ver -le 26){12} else{14} }
+            'A' { if($ver -le 9){9}  elseif($ver -le 26){11} else{13} }
+            'B' { if($ver -le 9){8}  else{16} }
+            'K' { if($ver -le 9){8}  elseif($ver -le 26){10} else{12} }
+        }
+        if ($idx + $cb -gt $bits.Count) { break }
+        $count = 0
+        for ($i=0;$i -lt $cb;$i++){ $count = ($count -shl 1) -bor $bits[$idx+$i] }
+        $idx += $cb
+        if ($mode -eq 'N') {
+            $out = ""
+            $rem = $count % 3; $full = $count - $rem
+            for ($i=0;$i -lt $full; $i += 3) {
+                $val = 0
+                for ($b=0;$b -lt 10;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }
+                $idx += 10
+                $out += $val.ToString("D3")
+            }
+            if ($rem -eq 1) {
+                $val = 0; for ($b=0;$b -lt 4;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 4
+                $out += $val.ToString()
+            } elseif ($rem -eq 2) {
+                $val = 0; for ($b=0;$b -lt 7;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 7
+                $out += $val.ToString("D2")
+            }
+            $resultTxt += $out
+            $segs += @{Mode='N'; Data=$out}
+        } elseif ($mode -eq 'A') {
+            $out = ""
+            for ($i=0;$i -lt $count; $i += 2) {
+                if ($i + 1 -lt $count) {
+                    $val = 0; for ($b=0;$b -lt 11;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 11
+                    $c1 = [Math]::Floor($val / 45); $c2 = $val % 45
+                    $out += $script:ALPH[$c1] + $script:ALPH[$c2]
+                } else {
+                    $val = 0; for ($b=0;$b -lt 5;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 5
+                    $out += $script:ALPH[$val]
+                }
+            }
+            $resultTxt += $out
+            $segs += @{Mode='A'; Data=$out}
+        } elseif ($mode -eq 'B') {
+            $bytesOut = @()
+            for ($i=0;$i -lt $count; $i++) {
+                $val = 0; for ($b=0;$b -lt 8;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }
+                $idx += 8
+                $bytesOut += $val
+            }
+            $txt = [Text.Encoding]::UTF8.GetString([byte[]]$bytesOut)
+            $resultTxt += $txt
+            $segs += @{Mode='B'; Data=$txt}
+        } elseif ($mode -eq 'K') {
+            $out = ""
+            for ($i=0;$i -lt $count; $i++) {
+                $val = 0; for ($b=0;$b -lt 13;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }
+                $idx += 13
+                $msb = [Math]::Floor($val / 0xC0); $lsb = $val % 0xC0
+                $sjis = [byte[]]@($msb, $lsb)
+                $out += [System.Text.Encoding]::GetEncoding(932).GetString($sjis,0,2)
+            }
+            $resultTxt += $out
+            $segs += @{Mode='K'; Data=$out}
+        }
+    }
+    return @{ Text=$resultTxt; Segments=$segs; ECI=$eciActive }
+}
+
+function Decode-QRCodeMatrix($m) {
+    $ver = [int](($m.Size - 17) / 4)
+    $fi = ReadFormatInfo $m
+    if (-not $fi.EC -or $fi.Mask -lt 0) { throw "Formato inválido" }
+    $um = UnmaskQR $m $fi.Mask
+    $bits = ExtractBitsQR $um
+    $spec = $script:SPEC["$ver$($fi.EC)"]
+    $cap = $spec.D
+    $allBytes = @()
+    for ($i=0;$i -lt $bits.Count; $i += 8) {
+        $byte = 0
+        for ($j=0;$j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i+$j] }
+        $allBytes += $byte
+    }
+    $dataBytes = $allBytes[0..([Math]::Min($cap, $allBytes.Count)-1)]
+    return DecodeQRStream $dataBytes $ver
+}
+
+function GetQualityMetrics($m) {
+    $hasSize = $m.PSObject.Properties.Name -contains 'Size'
+    $h = if ($hasSize) { $m.Size } else { $m.Height }
+    $w = if ($hasSize) { $m.Size } else { $m.Width }
+    $dark = 0
+    if ($hasSize) {
+        for ($r=0;$r -lt $h;$r++){ for($c=0;$c -lt $w;$c++){ if ((GetM $m $r $c) -eq 1) { $dark++ } } }
+    } else {
+        for ($r=0;$r -lt $h;$r++){ for($c=0;$c -lt $w;$c++){ if ($m.Mod["$r,$c"] -eq 1) { $dark++ } } }
+    }
+    $total = $h * $w
+    $pct = if ($total -gt 0) { [int](($dark * 100) / $total) } else { 0 }
+    $blocks = 0
+    for ($r=0;$r -lt $h-1;$r++){ for($c=0;$c -lt $w-1;$c++){ $v=$m.Mod["$r,$c"]; if ($v -eq $m.Mod["$r,$($c+1)"] -and $v -eq $m.Mod["$($r+1),$c"] -and $v -eq $m.Mod["$($r+1),$($c+1)"]) { $blocks++ } } }
+    return @{ DarkPct=$pct; Blocks2x2=$blocks; RecommendedQuiet=4 }
+}
+
 function FindBestMask($m) {
     $best = 0; $min = [int]::MaxValue
     for ($p = 0; $p -lt 8; $p++) {
@@ -1267,7 +1484,9 @@ function New-QRCode {
         [int]$StructuredAppendTotal = 0,
         [int]$StructuredAppendParity = -1,
         [string]$StructuredAppendParityData = "",
-        [switch]$ShowConsole
+    [switch]$ShowConsole,
+    [switch]$Decode,
+    [switch]$QualityReport
     )
     
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -1597,6 +1816,13 @@ function New-QRCode {
         if ($ShowConsole) {
             ShowConsoleRect $m
         }
+        if ($QualityReport) {
+            $qm = GetQualityMetrics $m
+            Write-Status "Calidad: Oscuros $($qm.DarkPct)%, Bloques2x2 $($qm.Blocks2x2), QuietZone min $($qm.RecommendedQuiet)"
+        }
+        if ($Decode) {
+            Write-Status "Decodificación no disponible para rMQR"
+        }
         if ($OutputPath) {
             $isSvg = $OutputPath.ToLower().EndsWith(".svg")
             $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
@@ -1745,6 +1971,14 @@ function New-QRCode {
     Write-Status "Tiempo: $($sw.ElapsedMilliseconds)ms"
     
     if ($ShowConsole) { ShowConsole $final }
+    if ($QualityReport) {
+        $qm = GetQualityMetrics $final
+        Write-Status "Calidad: Oscuros $($qm.DarkPct)%, Bloques2x2 $($qm.Blocks2x2), QuietZone min $($qm.RecommendedQuiet)"
+    }
+    if ($Decode) {
+        $dec = Decode-QRCodeMatrix $final
+        Write-Status "Decodificado: $($dec.Text)"
+    }
     if ($OutputPath) {
         $isSvg = $OutputPath.ToLower().EndsWith(".svg")
         $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
@@ -1929,7 +2163,7 @@ function Start-BatchProcessing {
 # ENTRY POINT
 if (-not [string]::IsNullOrEmpty($Data)) {
     # Modo CLI Directo (Un solo QR)
-    New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole
+    New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole -Decode:$Decode -QualityReport:$QualityReport
 } else {
     # Modo Batch (Por Archivo o Config)
     if (-not [string]::IsNullOrEmpty($InputFile) -or (Test-Path $IniPath)) {
