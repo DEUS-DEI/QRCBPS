@@ -43,3 +43,53 @@ Prueba Model 1	VARIANTE_MODELO	Modelo1	.\QRCode.ps1 -Data "Prueba Model 1" -Mode
 Structured Append Parte A	STRUCT_APPEND	SA-1-2	.\QRCode.ps1 -Data "Structured Append Parte A" -StructuredAppendTotal 2 -StructuredAppendIndex 0 -StructuredAppendParityData "Structured Append Parte A|Structured Append Parte B" -OutputPath "qr_sa_1.png"
 Structured Append Parte B	STRUCT_APPEND	SA-2-2	.\QRCode.ps1 -Data "Structured Append Parte B" -StructuredAppendTotal 2 -StructuredAppendIndex 1 -StructuredAppendParityData "Structured Append Parte A|Structured Append Parte B" -OutputPath "qr_sa_2.png"
 Micro QR	VARIANTE_MICRO	Micro-Auto	.\QRCode.ps1 -Data "Micro QR" -Symbol "Micro" -MicroVersion "AUTO" -OutputPath "qr_micro.png"
+#
+# Kanji y segmentos especiales
+漢字東京	KANJI	Modelo2-Auto	.\QRCode.ps1 -Data "漢字東京" -OutputPath "qr_kanji.png"
+$%*+-./: ABC 123	ALFANUM_ESPECIALES	Modelo2-Auto	.\QRCode.ps1 -Data "$%*+-./: ABC 123" -OutputPath "qr_alfanum_especiales.png"
+Mostrar en consola	CONSOLa	Modelo2-Auto	.\QRCode.ps1 -Data "Mostrar en consola" -ShowConsole -OutputPath "qr_console.png"
+Módulo grande	VARIANTE_RENDER	TamanoModulo20	.\QRCode.ps1 -Data "Módulo grande" -ModuleSize 20 -OutputPath "qr_mod20.png"
+
+# Micro QR por versión específica
+M1 Numérico corto	MICRO_M1	M1	.\QRCode.ps1 -Data "12345" -Symbol "Micro" -MicroVersion "M1" -OutputPath "qr_micro_m1.png"
+M2 Alfanumérico	MICRO_M2	M2	.\QRCode.ps1 -Data "ABC123" -Symbol "Micro" -MicroVersion "M2" -ECLevel "M" -OutputPath "qr_micro_m2.png"
+M3 Kanji	MICRO_M3	M3	.\QRCode.ps1 -Data "東京" -Symbol "Micro" -MicroVersion "M3" -ECLevel "L" -OutputPath "qr_micro_m3_kanji.png"
+M4 Alfanumérico Q	MICRO_M4	M4	.\QRCode.ps1 -Data "POWER123" -Symbol "Micro" -MicroVersion "M4" -ECLevel "Q" -OutputPath "qr_micro_m4_q.png"
+
+# GS1 FNC1 casos reales adicionales
+GS1 GTIN+Fecha+Lote+Serial	GS1	Modelo2-FNC1-Primero	.\QRCode.ps1 -Data "01123456789012311726010110LOT1234521SERIAL12345" -Fnc1First -OutputPath "qr_gs1_full.png"
+GS1 Segundo Posición Indicador 12	GS1_SEGUNDO	Modelo2-FNC1-Segundo	.\QRCode.ps1 -Data "990123456789012345" -Fnc1Second -Fnc1ApplicationIndicator 12 -OutputPath "qr_gs1_segundo_12.png"
+
+# Structured Append de 3 partes (real)
+Factura 2026 Parte A	STRUCT_APPEND	SA-1-3	.\QRCode.ps1 -Data "Factura 2026 Parte A" -StructuredAppendTotal 3 -StructuredAppendIndex 0 -StructuredAppendParityData "Factura 2026 Parte A|Factura 2026 Parte B|Factura 2026 Parte C" -OutputPath "qr_sa3_1.png"
+Factura 2026 Parte B	STRUCT_APPEND	SA-2-3	.\QRCode.ps1 -Data "Factura 2026 Parte B" -StructuredAppendTotal 3 -StructuredAppendIndex 1 -StructuredAppendParityData "Factura 2026 Parte A|Factura 2026 Parte B|Factura 2026 Parte C" -OutputPath "qr_sa3_2.png"
+Factura 2026 Parte C	STRUCT_APPEND	SA-3-3	.\QRCode.ps1 -Data "Factura 2026 Parte C" -StructuredAppendTotal 3 -StructuredAppendIndex 2 -StructuredAppendParityData "Factura 2026 Parte A|Factura 2026 Parte B|Factura 2026 Parte C" -OutputPath "qr_sa3_3.png"
+# Pruebas de capacidad Micro (límite por modo/EC)
+M1 límite N=5	MICRO_M1	LIMITE_N	.\QRCode.ps1 -Data "12345" -Symbol "Micro" -MicroVersion "M1" -OutputPath "micro_m1_lim_n.png"
+M2 L límite N=10	MICRO_M2	LIMITE_N_L	.\QRCode.ps1 -Data "1234567890" -Symbol "Micro" -MicroVersion "M2" -ECLevel "L" -OutputPath "micro_m2_lim_n_l.png"
+M2 M límite N=8	MICRO_M2	LIMITE_N_M	.\QRCode.ps1 -Data "12345678" -Symbol "Micro" -MicroVersion "M2" -ECLevel "M" -OutputPath "micro_m2_lim_n_m.png"
+M2 L límite A=6	MICRO_M2	LIMITE_A_L	.\QRCode.ps1 -Data "ABCDEF" -Symbol "Micro" -MicroVersion "M2" -ECLevel "L" -OutputPath "micro_m2_lim_a_l.png"
+M2 M límite A=5	MICRO_M2	LIMITE_A_M	.\QRCode.ps1 -Data "ABCDE" -Symbol "Micro" -MicroVersion "M2" -ECLevel "M" -OutputPath "micro_m2_lim_a_m.png"
+M3 L límite N=23	MICRO_M3	LIMITE_N_L	.\QRCode.ps1 -Data "12345678901234567890123" -Symbol "Micro" -MicroVersion "M3" -ECLevel "L" -OutputPath "micro_m3_lim_n_l.png"
+M3 L límite A=14	MICRO_M3	LIMITE_A_L	.\QRCode.ps1 -Data "ABCDEFGHIJKLMN" -Symbol "Micro" -MicroVersion "M3" -ECLevel "L" -OutputPath "micro_m3_lim_a_l.png"
+M3 L límite B=9	MICRO_M3	LIMITE_B_L	.\QRCode.ps1 -Data "123456789" -Symbol "Micro" -MicroVersion "M3" -ECLevel "L" -OutputPath "micro_m3_lim_b_l.png"
+M3 L límite K=6	MICRO_M3	LIMITE_K_L	.\QRCode.ps1 -Data "東京東京東京東京東京東京" -Symbol "Micro" -MicroVersion "M3" -ECLevel "L" -OutputPath "micro_m3_lim_k_l.png"
+M4 Q límite N=21	MICRO_M4	LIMITE_N_Q	.\QRCode.ps1 -Data "123456789012345678901" -Symbol "Micro" -MicroVersion "M4" -ECLevel "Q" -OutputPath "micro_m4_lim_n_q.png"
+M4 Q límite A=13	MICRO_M4	LIMITE_A_Q	.\QRCode.ps1 -Data "ABCDEFGHIJKLM" -Symbol "Micro" -MicroVersion "M4" -ECLevel "Q" -OutputPath "micro_m4_lim_a_q.png"
+M4 Q límite B=9	MICRO_M4	LIMITE_B_Q	.\QRCode.ps1 -Data "123456789" -Symbol "Micro" -MicroVersion "M4" -ECLevel "Q" -OutputPath "micro_m4_lim_b_q.png"
+M4 Q límite K=5	MICRO_M4	LIMITE_K_Q	.\QRCode.ps1 -Data "東京東京東京東京東京" -Symbol "Micro" -MicroVersion "M4" -ECLevel "Q" -OutputPath "micro_m4_lim_k_q.png"
+# M3 con EC M
+M3 M límite N=18	MICRO_M3	LIMITE_N_M	.\QRCode.ps1 -Data "123456789012345678" -Symbol "Micro" -MicroVersion "M3" -ECLevel "M" -OutputPath "micro_m3_lim_n_m.png"
+M3 M límite A=11	MICRO_M3	LIMITE_A_M	.\QRCode.ps1 -Data "ABCDEFGHIJK" -Symbol "Micro" -MicroVersion "M3" -ECLevel "M" -OutputPath "micro_m3_lim_a_m.png"
+M3 M límite B=7	MICRO_M3	LIMITE_B_M	.\QRCode.ps1 -Data "ABCDEFG" -Symbol "Micro" -MicroVersion "M3" -ECLevel "M" -OutputPath "micro_m3_lim_b_m.png"
+M3 M límite K=4	MICRO_M3	LIMITE_K_M	.\QRCode.ps1 -Data "東京大阪" -Symbol "Micro" -MicroVersion "M3" -ECLevel "M" -OutputPath "micro_m3_lim_k_m.png"
+# M4 con EC L
+M4 L límite N=35	MICRO_M4	LIMITE_N_L	.\QRCode.ps1 -Data "12345678901234567890123456789012345" -Symbol "Micro" -MicroVersion "M4" -ECLevel "L" -OutputPath "micro_m4_lim_n_l.png"
+M4 L límite A=21	MICRO_M4	LIMITE_A_L	.\QRCode.ps1 -Data "ABCDEFGHIJKLMNOPQRSTU" -Symbol "Micro" -MicroVersion "M4" -ECLevel "L" -OutputPath "micro_m4_lim_a_l.png"
+M4 L límite B=15	MICRO_M4	LIMITE_B_L	.\QRCode.ps1 -Data "ABCDEFGHIJKLMNO" -Symbol "Micro" -MicroVersion "M4" -ECLevel "L" -OutputPath "micro_m4_lim_b_l.png"
+M4 L límite K=9	MICRO_M4	LIMITE_K_L	.\QRCode.ps1 -Data "東京東京東京東京東京東京東京東京東京" -Symbol "Micro" -MicroVersion "M4" -ECLevel "L" -OutputPath "micro_m4_lim_k_l.png"
+# M4 con EC M
+M4 M límite N=30	MICRO_M4	LIMITE_N_M	.\QRCode.ps1 -Data "123456789012345678901234567890" -Symbol "Micro" -MicroVersion "M4" -ECLevel "M" -OutputPath "micro_m4_lim_n_m.png"
+M4 M límite A=18	MICRO_M4	LIMITE_A_M	.\QRCode.ps1 -Data "ABCDEFGHIJKLMNOPQR" -Symbol "Micro" -MicroVersion "M4" -ECLevel "M" -OutputPath "micro_m4_lim_a_m.png"
+M4 M límite B=13	MICRO_M4	LIMITE_B_M	.\QRCode.ps1 -Data "ABCDEFGHIJKLM" -Symbol "Micro" -MicroVersion "M4" -ECLevel "M" -OutputPath "micro_m4_lim_b_m.png"
+M4 M límite K=8	MICRO_M4	LIMITE_K_M	.\QRCode.ps1 -Data "東京東京東京東京東京東京東京東京" -Symbol "Micro" -MicroVersion "M4" -ECLevel "M" -OutputPath "micro_m4_lim_k_m.png"

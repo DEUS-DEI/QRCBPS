@@ -79,3 +79,29 @@ Si no hay errores, el comando no imprime nada. Si hay errores, PowerShell lanza 
 ## Estado actual del repo
 
 No hay comandos de lint/typecheck definidos en scripts del repo. Los anteriores son la recomendación estándar para PowerShell puro.
+
+### Resultado reciente
+- Lint ejecutado en todo el repo: sin errores críticos (solo informativos).
+- Validación de sintaxis de QRCode.ps1: OK.
+
+### Sugerencia para CI (GitHub Actions)
+Añade un job simple para validar lint y sintaxis:
+
+```yaml
+name: lint
+on: [push, pull_request]
+jobs:
+  ps-lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar PSScriptAnalyzer
+        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+      - name: Lint
+        run: Invoke-ScriptAnalyzer -Path . -Recurse
+      - name: Typecheck
+        run: |
+          $err=$null;$tok=$null;
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path .\\QRCode.ps1), [ref]$tok, [ref]$err) | Out-Null
+          if ($err) { throw 'Errores de sintaxis en QRCode.ps1' }
+```

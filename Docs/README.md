@@ -73,6 +73,30 @@ C:\Users\[USERNAME]\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoProfile .\QR
 .\\QRCode.ps1 -Data "Micro" -Symbol "Micro" -MicroVersion "AUTO" -OutputPath "micro.png"
 ```
 
+#### Ejemplos adicionales
+```powershell
+# Micro por versión específica
+.\QRCode.ps1 -Data "12345"   -Symbol "Micro" -MicroVersion "M1" -OutputPath "micro_m1.png"
+.\QRCode.ps1 -Data "ABC123"  -Symbol "Micro" -MicroVersion "M2" -ECLevel "M" -OutputPath "micro_m2.png"
+.\QRCode.ps1 -Data "東京"     -Symbol "Micro" -MicroVersion "M3" -ECLevel "L" -OutputPath "micro_m3_kanji.png"
+.\QRCode.ps1 -Data "POWER123" -Symbol "Micro" -MicroVersion "M4" -ECLevel "Q" -OutputPath "micro_m4_q.png"
+
+# GS1 FNC1 (segunda posición con indicador 12)
+.\QRCode.ps1 -Data "990123456789012345" -Fnc1Second -Fnc1ApplicationIndicator 12 -OutputPath "gs1_segundo_12.png"
+
+# Structured Append (3 partes)
+.\QRCode.ps1 -Data "Factura 2026 Parte A" -StructuredAppendTotal 3 -StructuredAppendIndex 0 -StructuredAppendParityData "Factura 2026 Parte A|Factura 2026 Parte B|Factura 2026 Parte C" -OutputPath "sa3_1.png"
+.\QRCode.ps1 -Data "Factura 2026 Parte B" -StructuredAppendTotal 3 -StructuredAppendIndex 1 -StructuredAppendParityData "Factura 2026 Parte A|Factura 2026 Parte B|Factura 2026 Parte C" -OutputPath "sa3_2.png"
+.\QRCode.ps1 -Data "Factura 2026 Parte C" -StructuredAppendTotal 3 -StructuredAppendIndex 2 -StructuredAppendParityData "Factura 2026 Parte A|Factura 2026 Parte B|Factura 2026 Parte C" -OutputPath "sa3_3.png"
+```
+
+#### Pruebas de capacidad (Micro QR)
+Los siguientes ejemplos en `lista_inputs.tsv` alcanzan el límite por modo/EC según la tabla interna de capacidades:
+- M1: Numérico 5 dígitos
+- M2: L/M Numérico y Alfanumérico (10/8 y 6/5)
+- M3: L/M Numérico/Alfanumérico/Byte/Kanji (23/18, 14/11, 9/7, 6/4)
+- M4: L/M/Q Numérico/Alfanumérico/Byte/Kanji (35/30/21, 21/18/13, 15/13/9, 9/8/5)
+
 ### Procesamiento por Lotes (Batch)
 El script puede procesar múltiples entradas automáticamente:
 1.  Configura tus preferencias en `config.ini`.

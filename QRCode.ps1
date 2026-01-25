@@ -1080,7 +1080,100 @@ function New-QRCode {
         return $final
     }
     
-    if ($Symbol -eq 'rMQR') { throw "rMQR no implementado en PowerShell puro" }
+    if ($Symbol -eq 'rMQR') {
+        $ecUse = if ($ECLevel -eq 'H') { 'H' } else { 'M' }
+        $rawBits = New-Object System.Collections.ArrayList
+        foreach ($b in [Text.Encoding]::UTF8.GetBytes($Data)) {
+            for ($i = 7; $i -ge 0; $i--) { [void]$rawBits.Add([int](($b -shr $i) -band 1)) }
+        }
+        $sizes = @(@(7,43),@(7,59),@(7,77),@(7,99),@(7,139),@(9,43),@(9,59),@(9,77),@(9,99),@(9,139),@(11,43),@(11,59),@(11,77),@(11,99),@(11,139),@(13,59),@(13,77),@(13,99),@(15,59),@(15,77),@(15,99),@(17,59),@(17,77),@(17,99),@(17,139))
+        $chosen = $null
+        foreach ($sz in $sizes) {
+            $h = $sz[0]; $w = $sz[1]
+            $mTmp = @{}
+            $mTmp.Height = $h
+            $mTmp.Width = $w
+            $mTmp.Mod = @{}
+            $mTmp.Func = @{}
+            for ($r = 0; $r -lt $h; $r++) { for ($c = 0; $c -lt $w; $c++) { $mTmp.Mod["$r,$c"]=0; $mTmp.Func["$r,$c"]=$false } }
+            for ($dy = -1; $dy -le 7; $dy++) { for ($dx = -1; $dx -le 7; $dx++) { $r = 0 + $dy; $c = 0 + $dx; if ($r -lt 0 -or $c -lt 0 -or $r -ge $h -or $c -ge $w) { continue } $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6; if (-not $in) { $mTmp.Func["$r,$c"]=$true; $mTmp.Mod["$r,$c"]=0; continue } $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6; $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4; $mTmp.Func["$r,$c"]=$true; $mTmp.Mod["$r,$c"]=([int]($on -or $cent)) } }
+            for ($dy = -1; $dy -le 7; $dy++) { for ($dx = -1; $dx -le 7; $dx++) { $r = ($h - 7) + $dy; $c = ($w - 7) + $dx; if ($r -lt 0 -or $c -lt 0 -or $r -ge $h -or $c -ge $w) { continue } $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6; if (-not $in) { $mTmp.Func["$r,$c"]=$true; $mTmp.Mod["$r,$c"]=0; continue } $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6; $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4; $mTmp.Func["$r,$c"]=$true; $mTmp.Mod["$r,$c"]=([int]($on -or $cent)) } }
+            for ($c = 7; $c -lt $w; $c++) { $v = ($c % 2) -eq 0; if (-not $mTmp.Func["6,$c"]) { $mTmp.Func["6,$c"]=$true; $mTmp.Mod["6,$c"]=[int]$v } }
+            for ($r = 7; $r -lt $h; $r++) { $v = ($r % 2) -eq 0; if (-not $mTmp.Func["$r,6"]) { $mTmp.Func["$r,6"]=$true; $mTmp.Mod["$r,6"]=[int]$v } }
+            $free = 0
+            for ($r = 0; $r -lt $h; $r++) { for ($c = 0; $c -lt $w; $c++) { if (-not $mTmp.Func["$r,$c"]) { $free++ } } }
+            if ($free -ge $rawBits.Count) { $chosen = $sz; break }
+        }
+        if ($null -eq $chosen) { throw "Datos muy largos para rMQR" }
+        $h = $chosen[0]; $w = $chosen[1]
+        $m = @{}
+        $m.Height = $h
+        $m.Width = $w
+        $m.Mod = @{}
+        $m.Func = @{}
+        for ($r = 0; $r -lt $h; $r++) { for ($c = 0; $c -lt $w; $c++) { $m.Mod["$r,$c"]=0; $m.Func["$r,$c"]=$false } }
+        for ($dy = -1; $dy -le 7; $dy++) { for ($dx = -1; $dx -le 7; $dx++) { $r = 0 + $dy; $c = 0 + $dx; if ($r -lt 0 -or $c -lt 0 -or $r -ge $h -or $c -ge $w) { continue } $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6; if (-not $in) { $m.Func["$r,$c"]=$true; $m.Mod["$r,$c"]=0; continue } $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6; $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4; $m.Func["$r,$c"]=$true; $m.Mod["$r,$c"]=([int]($on -or $cent)) } }
+        for ($dy = -1; $dy -le 7; $dy++) { for ($dx = -1; $dx -le 7; $dx++) { $r = ($h - 7) + $dy; $c = ($w - 7) + $dx; if ($r -lt 0 -or $c -lt 0 -or $r -ge $h -or $c -ge $w) { continue } $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6; if (-not $in) { $m.Func["$r,$c"]=$true; $m.Mod["$r,$c"]=0; continue } $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6; $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4; $m.Func["$r,$c"]=$true; $m.Mod["$r,$c"]=([int]($on -or $cent)) } }
+        for ($c = 7; $c -lt $w; $c++) { $v = ($c % 2) -eq 0; if (-not $m.Func["6,$c"]) { $m.Func["6,$c"]=$true; $m.Mod["6,$c"]=[int]$v } }
+        for ($r = 7; $r -lt $h; $r++) { $v = ($r % 2) -eq 0; if (-not $m.Func["$r,6"]) { $m.Func["$r,6"]=$true; $m.Mod["$r,6"]=[int]$v } }
+        $bits = $rawBits
+        $idx = 0
+        $up = $true
+        for ($right = $w - 1; $right -ge 1; $right -= 2) {
+            if ($right -eq 6) { $right = 5 }
+            $rows = if ($up) { ($h - 1)..0 } else { 0..($h - 1) }
+            foreach ($row in $rows) {
+                for ($dc = 0; $dc -le 1; $dc++) {
+                    $col = $right - $dc
+                    if (-not $m.Func["$row,$col"]) {
+                        $v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
+                        $m.Mod["$row,$col"] = $v
+                        $idx++
+                    }
+                }
+            }
+            $up = -not $up
+        }
+        Write-Status "Version: R$h`x$w"
+        Write-Status "EC: $ecUse"
+        $sw.Stop()
+        if ($ShowConsole) {
+            Write-Output ""
+            $border = [string]::new([char]0x2588, ($m.Width + 2) * 2)
+            Write-Output "  $border"
+            for ($r = 0; $r -lt $m.Height; $r++) {
+                $line = "  " + [char]0x2588 + [char]0x2588
+                for ($c = 0; $c -lt $m.Width; $c++) {
+                    $line += if ($m.Mod["$r,$c"] -eq 1) { "  " } else { [string]::new([char]0x2588, 2) }
+                }
+                Write-Output "$line$([char]0x2588)$([char]0x2588)"
+            }
+            Write-Output "  $border"
+            Write-Output ""
+        }
+        if ($OutputPath -and $PSCmdlet.ShouldProcess($OutputPath, "Exportar PNG")) {
+            Add-Type -AssemblyName System.Drawing
+            $imgW = ($m.Width + 8) * $ModuleSize
+            $imgH = ($m.Height + 8) * $ModuleSize
+            $bmp = New-Object Drawing.Bitmap $imgW, $imgH
+            $g = [Drawing.Graphics]::FromImage($bmp)
+            $g.Clear([Drawing.Color]::White)
+            $black = [Drawing.Brushes]::Black
+            for ($r = 0; $r -lt $m.Height; $r++) {
+                for ($c = 0; $c -lt $m.Width; $c++) {
+                    if ($m.Mod["$r,$c"] -eq 1) {
+                        $x = ($c + 4) * $ModuleSize
+                        $y = ($r + 4) * $ModuleSize
+                        $g.FillRectangle($black, $x, $y, $ModuleSize, $ModuleSize)
+                    }
+                }
+            }
+            $g.Dispose()
+            $bmp.Save($OutputPath, [Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose()
+        }
+        return $m
+    }
     
     if ($Fnc1First -and $Fnc1Second) { throw "FNC1 solo admite primera o segunda posiciÃ³n" }
     if ($Fnc1Second -and ($Fnc1ApplicationIndicator -lt 0 -or $Fnc1ApplicationIndicator -gt 255)) { throw "Fnc1ApplicationIndicator debe estar entre 0 y 255" }
