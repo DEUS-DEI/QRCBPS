@@ -702,7 +702,9 @@ function Get-RMQRCountBitsMap($spec) {
     $h = $spec.H; $w = $spec.W
     $grp = $null
     if ($w -ge 99) { $grp = 'L' }
-    elseif ($h -le 9) { $grp = (if ($w -ge 77) { 'M' } else { 'S' }) }
+    elseif ($h -le 9) {
+        if ($w -ge 77) { $grp = 'M' } else { $grp = 'S' }
+    }
     elseif ($h -le 13) { $grp = 'M' }
     else { $grp = 'L' }
     switch ($grp) {
@@ -1397,10 +1399,12 @@ function New-QRCode {
             $remEC = $eccLen % $blocks
             $start = 0
             for ($bix=0; $bix -lt $blocks; $bix++) {
-                $dLen = $baseData + (if ($bix -lt $remData) { 1 } else { 0 })
+                $dLen = $baseData
+                if ($bix -lt $remData) { $dLen += 1 }
                 $chunk = if ($dLen -gt 0) { $dataCW[$start..($start+$dLen-1)] } else { @() }
                 $start += $dLen
-                $eLen = $baseEC + (if ($bix -lt $remEC) { 1 } else { 0 })
+                $eLen = $baseEC
+                if ($bix -lt $remEC) { $eLen += 1 }
                 $ecChunk = if ($eLen -gt 0 -and $chunk.Count -gt 0) { GetEC $chunk $eLen } else { @() }
                 $dataBlocks += ,$chunk
                 $ecBlocks += ,$ecChunk
