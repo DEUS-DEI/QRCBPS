@@ -332,13 +332,11 @@ Paridad: 8 bits (XOR de datos)
 ## 📊 Impacto en Adopción
 
 ### **Sin Implementación de Faltantes**
-- ❌ Limitado a aplicaciones básicas
-- ❌ No compatible con sistemas GS1
-- ❌ Sin soporte para espacios pequeños
-- ❌ Capacidad limitada para datos grandes
+- ❌ Limitado a aplicaciones básicas (sin encriptación SQRC)
+- ❌ Capacidad limitada para datos muy grandes (sin iQR Code)
 
 ### **Con Implementación Completa**
-- ✅ Compatibilidad comercial total
+- ✅ Compatibilidad comercial total (incluyendo GS1 y espacios pequeños)
 - ✅ Soporte para todos los casos de uso
 - ✅ Adopción en industria y logística
 - ✅ Flexibilidad para aplicaciones futuras

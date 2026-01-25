@@ -36,6 +36,7 @@ pwsh -Version
 *   **FNC1 / GS1:** Soporte para modos 5 y 9 con Application Indicator.
 *   **Corrección de Errores (ECC):** Soporte total para niveles **L, M, Q y H**, garantizando legibilidad incluso en superficies dañadas.
 *   **Exportación Directa:** Genera archivos **PNG** y **SVG** nítidos con control total sobre el tamaño del módulo y bordes (quiet zone).
+*   **Selección Automática de Simbología:** Modo **AUTO** elige entre **QR**, **Micro** o **rMQR** según capacidad y tamaño óptimo.
 
 ---
 
@@ -63,6 +64,9 @@ C:\Users\[USERNAME]\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoProfile .\QR
 # Con personalización avanzada
 .\QRCode.ps1 -Data "Mi Texto" -ECLevel "H" -ModuleSize 15 -OutputPath "personalizado.png"
 
+# Selección automática de simbología y versión
+.\QRCode.ps1 -Data "Texto variado" -Symbol "AUTO" -OutputPath "auto.png"
+
 # Modelo 1 (Versiones 1-14)
 .\QRCode.ps1 -Data "Modelo 1" -Model "M1" -Version 4 -OutputPath "model1.png"
 
@@ -78,6 +82,10 @@ C:\Users\[USERNAME]\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoProfile .\QR
 # rMQR (Rectangular Micro QR)
 .\QRCode.ps1 -Data "HELLO" -Symbol "rMQR" -ECLevel "M" -OutputPath "rmqr_hello_m.png"
 .\QRCode.ps1 -Data "Rectangular QR" -Symbol "rMQR" -ECLevel "H" -OutputPath "rmqr_texto_h.png"
+ 
+# AUTO con GS1 y Structured Append
+.\QRCode.ps1 -Data "01012345678901281724010110ABC" -Symbol "AUTO" -Fnc1First -OutputPath "auto_gs1.png"
+.\QRCode.ps1 -Data "Parte A" -Symbol "AUTO" -StructuredAppendTotal 2 -StructuredAppendIndex 0 -StructuredAppendParityData "Parte A|Parte B" -OutputPath "auto_sa_1.png"
 ```
 
 #### Ejemplos adicionales

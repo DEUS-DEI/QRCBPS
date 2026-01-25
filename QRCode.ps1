@@ -18,7 +18,7 @@ param(
     [int]$Version = 0,
     [int]$ModuleSize = 10,
     [int]$EciValue = 0,
-    [ValidateSet('QR','Micro','rMQR')][string]$Symbol = 'QR',
+    [ValidateSet('QR','Micro','rMQR','AUTO')][string]$Symbol = 'AUTO',
     [ValidateSet('M1','M2')][string]$Model = 'M2',
     [ValidateSet('AUTO','M1','M2','M3','M4')][string]$MicroVersion = 'AUTO',
     [switch]$Fnc1First,
@@ -1257,7 +1257,7 @@ function New-QRCode {
         [string]$OutputPath,
         [int]$ModuleSize = 10,
         [int]$EciValue = 0,
-        [ValidateSet('QR','Micro','rMQR')][string]$Symbol = 'QR',
+        [ValidateSet('QR','Micro','rMQR','AUTO')][string]$Symbol = 'AUTO',
         [ValidateSet('M1','M2')][string]$Model = 'M2',
         [ValidateSet('AUTO','M1','M2','M3','M4')][string]$MicroVersion = 'AUTO',
         [switch]$Fnc1First,
@@ -1271,6 +1271,111 @@ function New-QRCode {
     )
     
     $sw = [Diagnostics.Stopwatch]::StartNew()
+    
+    if ($Symbol -eq 'AUTO') {
+        $modeAuto = GetMicroMode $Data
+        $orderMv = @('M1','M2','M3','M4')
+        $selMv = $null
+        foreach ($mv in $orderMv) {
+            $ecTry = if ($mv -eq 'M1') { 'L' } else { $ECLevel }
+            $cap = GetMicroCap $mv $ecTry $modeAuto
+            if ($cap -lt 0) { continue }
+            $len = if ($modeAuto -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($Data) } else { $Data.Length }
+            if ($len -le $cap) { $selMv = $mv; break }
+        }
+        if ($selMv) {
+            $MicroVersion = $selMv
+            $Symbol = 'Micro'
+        } else {
+            $qrSegments = @()
+            $useSAauto = ($StructuredAppendTotal -gt 0 -or $StructuredAppendIndex -ge 0 -or $StructuredAppendParity -ge 0)
+            if ($useSAauto) {
+                $paritySourceAuto = if ([string]::IsNullOrEmpty($StructuredAppendParityData)) { $Data } else { $StructuredAppendParityData }
+                $parityAuto = if ($StructuredAppendParity -ge 0) { $StructuredAppendParity } else { Get-StructuredAppendParity $paritySourceAuto }
+                $qrSegments += @{Mode='SA'; Index=$StructuredAppendIndex; Total=$StructuredAppendTotal; Parity=$parityAuto}
+            }
+            if ($Fnc1First) { $qrSegments += @{Mode='F1'} }
+            elseif ($Fnc1Second) { $qrSegments += @{Mode='F2'; AppIndicator=$Fnc1ApplicationIndicator} }
+            if ($EciValue -gt 0) {
+                $qrSegments += @{Mode='ECI'; Data="$EciValue"}
+            } else {
+                $tmpSegs = Get-Segment $Data
+                $needsUtf8Auto = $false
+                foreach ($segA in $tmpSegs) { if ($segA.Mode -eq 'B' -and $segA.Data -match '[^ -~]') { $needsUtf8Auto = $true; break } }
+                if ($needsUtf8Auto) { $qrSegments += @{Mode='ECI'; Data="26"} }
+                $qrSegments += $tmpSegs
+            }
+            $qrMinVer = 0
+            $maxVerAuto = if ($Model -eq 'M1') { 14 } else { 40 }
+            for ($vAuto = 1; $vAuto -le $maxVerAuto; $vAuto++) {
+                $totalBitsAuto = 0
+                foreach ($segAuto in $qrSegments) {
+                    $totalBitsAuto += 4
+                    if ($segAuto.Mode -eq 'ECI') {
+                        $valAuto = [int]$segAuto.Data
+                        if ($valAuto -lt 128) { $totalBitsAuto += 8 } elseif ($valAuto -lt 16384) { $totalBitsAuto += 16 } else { $totalBitsAuto += 24 }
+                    } elseif ($segAuto.Mode -eq 'SA') {
+                        $totalBitsAuto += 16
+                    } elseif ($segAuto.Mode -eq 'F2') {
+                        $totalBitsAuto += 8
+                    } elseif ($segAuto.Mode -eq 'F1') {
+                        $totalBitsAuto += 0
+                    } else {
+                        $cbAuto = switch ($segAuto.Mode) {
+                            'N' { if($vAuto -le 9){10} elseif($vAuto -le 26){12} else{14} }
+                            'A' { if($vAuto -le 9){9}  elseif($vAuto -le 26){11} else{13} }
+                            'B' { if($vAuto -le 9){8}  else{16} }
+                            'K' { if($vAuto -le 9){8}  elseif($vAuto -le 26){10} else{12} }
+                        }
+                        $totalBitsAuto += $cbAuto
+                        $txtAuto = $segAuto.Data
+                        if ($segAuto.Mode -eq 'N') {
+                            $fullAuto = [Math]::Floor($txtAuto.Length / 3); $remAuto = $txtAuto.Length % 3
+                            $bitsRemAuto = 0; if($remAuto -eq 1){$bitsRemAuto=4} elseif($remAuto -eq 2){$bitsRemAuto=7}
+                            $totalBitsAuto += $fullAuto * 10 + $bitsRemAuto
+                        } elseif ($segAuto.Mode -eq 'A') {
+                            $fullAuto = [Math]::Floor($txtAuto.Length / 2); $remAuto = $txtAuto.Length % 2
+                            $bitsRemAuto = 0; if($remAuto -eq 1){$bitsRemAuto=6}
+                            $totalBitsAuto += $fullAuto * 11 + $bitsRemAuto
+                        } elseif ($segAuto.Mode -eq 'B') {
+                            $totalBitsAuto += [Text.Encoding]::UTF8.GetByteCount($txtAuto) * 8
+                        } elseif ($segAuto.Mode -eq 'K') {
+                            $totalBitsAuto += $txtAuto.Length * 13
+                        }
+                    }
+                }
+                if (-not $script:SPEC.ContainsKey("$vAuto$ECLevel")) { continue }
+                $capacityBitsAuto = $script:SPEC["$vAuto$ECLevel"].D * 8
+                if ($capacityBitsAuto -ge $totalBitsAuto) { $qrMinVer = $vAuto; break }
+            }
+            if ($qrMinVer -eq 0) { $Symbol = 'QR' } else {
+                $qrSizeAuto = GetSize $qrMinVer
+                $qrArea = $qrSizeAuto * $qrSizeAuto
+                $rArea = [int]::MaxValue
+                $canRMQR = ($ECLevel -eq 'M' -or $ECLevel -eq 'H')
+                if ($canRMQR) {
+                    $orderedAuto = ($script:RMQR_SPEC.GetEnumerator() | Sort-Object { $_.Value.H } , { $_.Value.W })
+                    $chosenKeyAuto = $null
+                    foreach ($kvAuto in $orderedAuto) {
+                        $verAutoKey = $kvAuto.Key; $specAuto = $kvAuto.Value
+                        $deAuto = if ($ECLevel -eq 'H') { $specAuto.H2 } else { $specAuto.M }
+                        $probeAuto = RMQREncode $Data $specAuto $ECLevel
+                        if ($probeAuto.Count -le $deAuto.D) { $chosenKeyAuto = $verAutoKey; break }
+                    }
+                    if ($chosenKeyAuto) {
+                        $specChosen = $script:RMQR_SPEC[$chosenKeyAuto]
+                        $rArea = $specChosen.H * $specChosen.W
+                    }
+                }
+                if ($rArea -lt $qrArea) {
+                    $Symbol = 'rMQR'
+                } else {
+                    $Symbol = 'QR'
+                    $Version = $qrMinVer
+                }
+            }
+        }
+    }
     
     if ($Symbol -eq 'Micro') {
         $mode = GetMicroMode $Data
@@ -1684,7 +1789,7 @@ function Start-BatchProcessing {
         [string]$IniPath = ".\config.ini",
         [string]$InputFileOverride = "",
         [string]$OutputDirOverride = "",
-        [ValidateSet('QR','Micro','rMQR')][string]$Symbol = 'QR',
+            [ValidateSet('QR','Micro','rMQR','AUTO')][string]$Symbol = 'AUTO',
         [ValidateSet('M1','M2')][string]$Model = 'M2',
         [ValidateSet('AUTO','M1','M2','M3','M4')][string]$MicroVersion = 'AUTO',
         [switch]$Fnc1First,
