@@ -1150,6 +1150,69 @@ function ExportPngRect {
     $bmp.Dispose()
 }
 
+function ExportSvg {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        $m,
+        $path,
+        $scale,
+        $quiet
+    )
+    if (-not $PSCmdlet.ShouldProcess($path, "Exportar SVG")) { return }
+    $size = $m.Size
+    $wUnits = $size + ($quiet * 2)
+    $hUnits = $wUnits
+    $widthPx = $wUnits * $scale
+    $heightPx = $hUnits * $scale
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
+    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" width=""$widthPx"" height=""$heightPx"" viewBox=""0 0 $wUnits $hUnits"" shape-rendering=""crispEdges"">")
+    [void]$sb.Append("<rect width=""$wUnits"" height=""$hUnits"" fill=""#ffffff""/>")
+    [void]$sb.Append("<g fill=""#000000"">")
+    for ($r = 0; $r -lt $m.Size; $r++) {
+        for ($c = 0; $c -lt $m.Size; $c++) {
+            if ((GetM $m $r $c) -eq 1) {
+                $x = $c + $quiet
+                $y = $r + $quiet
+                [void]$sb.Append("<rect x=""$x"" y=""$y"" width=""1"" height=""1""/>")
+            }
+        }
+    }
+    [void]$sb.Append("</g></svg>")
+    Set-Content -Path $path -Value $sb.ToString() -Encoding UTF8
+}
+
+function ExportSvgRect {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        $m,
+        $path,
+        $scale,
+        $quiet
+    )
+    if (-not $PSCmdlet.ShouldProcess($path, "Exportar SVG")) { return }
+    $wUnits = $m.Width + ($quiet * 2)
+    $hUnits = $m.Height + ($quiet * 2)
+    $widthPx = $wUnits * $scale
+    $heightPx = $hUnits * $scale
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
+    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" width=""$widthPx"" height=""$heightPx"" viewBox=""0 0 $wUnits $hUnits"" shape-rendering=""crispEdges"">")
+    [void]$sb.Append("<rect width=""$wUnits"" height=""$hUnits"" fill=""#ffffff""/>")
+    [void]$sb.Append("<g fill=""#000000"">")
+    for ($r = 0; $r -lt $m.Height; $r++) {
+        for ($c = 0; $c -lt $m.Width; $c++) {
+            if ($m.Mod["$r,$c"] -eq 1) {
+                $x = $c + $quiet
+                $y = $r + $quiet
+                [void]$sb.Append("<rect x=""$x"" y=""$y"" width=""1"" height=""1""/>")
+            }
+        }
+    }
+    [void]$sb.Append("</g></svg>")
+    Set-Content -Path $path -Value $sb.ToString() -Encoding UTF8
+}
+
 function ShowConsoleRect {
     param($m)
     Write-Output ""
@@ -1282,8 +1345,16 @@ function New-QRCode {
         $sw.Stop()
         Write-Status "Tiempo: $($sw.ElapsedMilliseconds)ms"
         if ($ShowConsole) { ShowConsole $final }
-        if ($OutputPath -and $PSCmdlet.ShouldProcess($OutputPath, "Exportar PNG")) {
-            ExportPng $final $OutputPath $ModuleSize 2
+        if ($OutputPath) {
+            $isSvg = $OutputPath.ToLower().EndsWith(".svg")
+            $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
+            if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
+                if ($isSvg) {
+                    ExportSvg $final $OutputPath $ModuleSize 2
+                } else {
+                    ExportPng $final $OutputPath $ModuleSize 2
+                }
+            }
             Write-Status "Guardado: $OutputPath"
         }
         return $final
@@ -1417,8 +1488,16 @@ function New-QRCode {
         if ($ShowConsole) {
             ShowConsoleRect $m
         }
-        if ($OutputPath -and $PSCmdlet.ShouldProcess($OutputPath, "Exportar PNG")) {
-            ExportPngRect $m $OutputPath $ModuleSize 4
+        if ($OutputPath) {
+            $isSvg = $OutputPath.ToLower().EndsWith(".svg")
+            $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
+            if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
+                if ($isSvg) {
+                    ExportSvgRect $m $OutputPath $ModuleSize 4
+                } else {
+                    ExportPngRect $m $OutputPath $ModuleSize 4
+                }
+            }
         }
         return $m
     }
@@ -1557,8 +1636,16 @@ function New-QRCode {
     Write-Status "Tiempo: $($sw.ElapsedMilliseconds)ms"
     
     if ($ShowConsole) { ShowConsole $final }
-    if ($OutputPath -and $PSCmdlet.ShouldProcess($OutputPath, "Exportar PNG")) {
-        ExportPng $final $OutputPath $ModuleSize 4
+    if ($OutputPath) {
+        $isSvg = $OutputPath.ToLower().EndsWith(".svg")
+        $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
+        if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
+            if ($isSvg) {
+                ExportSvg $final $OutputPath $ModuleSize 4
+            } else {
+                ExportPng $final $OutputPath $ModuleSize 4
+            }
+        }
         Write-Status "Guardado: $OutputPath"
     }
     
@@ -1710,8 +1797,9 @@ function Start-BatchProcessing {
         $nameParts = @($prefix, $baseName)
         if (-not [string]::IsNullOrEmpty($suffix)) { $nameParts += $suffix }
         if ($useTs) { $nameParts += "_" + (Get-Date -Format $tsFormat) }
-        
-        $name = ($nameParts -join "") + ".png"
+        $fmt = (Get-IniValue $iniContent "QRPS" "QRPS_FormatoSalida" "png").ToLower()
+        $ext = if ($fmt -eq "svg") { ".svg" } else { ".png" }
+        $name = ($nameParts -join "") + $ext
         
         $finalPath = Join-Path $outPath $name
         
