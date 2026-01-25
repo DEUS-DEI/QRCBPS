@@ -607,6 +607,82 @@ function Encode($segments, $ver, $ec) {
     return $result
 }
 
+function RMQREncode($txt, $spec, $ec) {
+    $segments = Get-Segment $txt
+    $bits = New-Object System.Collections.ArrayList
+    $de = if ($ec -eq 'H') { $spec.H2 } else { $spec.M }
+    $capBits = $de.D * 8
+    $d = $de.D
+    $grp = if ($d -le 30) { 'S' } elseif ($d -le 84) { 'M' } else { 'L' }
+    foreach ($seg in $segments) {
+        $mode = $seg.Mode; $txtS = $seg.Data
+        switch ($mode) {
+            'N'{[void]$bits.AddRange(@(0,0,0,1))}
+            'A'{[void]$bits.AddRange(@(0,0,1,0))}
+            'B'{[void]$bits.AddRange(@(0,1,0,0))}
+            'K'{[void]$bits.AddRange(@(1,0,0,0))}
+        }
+        $cb = switch ($mode) {
+            'N' { switch ($grp) { 'S'{10} 'M'{12} 'L'{14} } }
+            'A' { switch ($grp) { 'S'{9}  'M'{11} 'L'{13} } }
+            'B' { switch ($grp) { 'S'{8}  'M'{16} 'L'{16} } }
+            'K' { switch ($grp) { 'S'{8}  'M'{10} 'L'{12} } }
+        }
+        $count = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($txtS) } else { $txtS.Length }
+        for ($i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($count -shr $i) -band 1)) }
+        switch ($mode) {
+            'N' {
+                for ($i = 0; $i -lt $txtS.Length; $i += 3) {
+                    $ch = $txtS.Substring($i, [Math]::Min(3, $txtS.Length - $i))
+                    $v = [int]$ch; $nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
+                    for ($b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                }
+            }
+            'A' {
+                for ($i = 0; $i -lt $txtS.Length; $i += 2) {
+                    if ($i + 1 -lt $txtS.Length) {
+                        $v = $script:ALPH.IndexOf($txtS[$i]) * 45 + $script:ALPH.IndexOf($txtS[$i+1])
+                        for ($b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                    } else {
+                        $v = $script:ALPH.IndexOf($txtS[$i])
+                        for ($b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                    }
+                }
+            }
+            'B' {
+                foreach ($byte in [Text.Encoding]::UTF8.GetBytes($txtS)) {
+                    for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($byte -shr $b) -band 1)) }
+                }
+            }
+            'K' {
+                $sjis = [System.Text.Encoding]::GetEncoding(932)
+                $bytes = $sjis.GetBytes($txtS)
+                for ($i = 0; $i -lt $bytes.Length; $i += 2) {
+                    $val = ([int]$bytes[$i] -shl 8) -bor [int]$bytes[$i+1]
+                    if ($val -ge 0x8140 -and $val -le 0x9FFC) { $val -= 0x8140 }
+                    elseif ($val -ge 0xE040 -and $val -le 0xEBBF) { $val -= 0xC140 }
+                    $val = (($val -shr 8) * 0xC0) + ($val -band 0xFF)
+                    for ($b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                }
+            }
+        }
+    }
+    $term = [Math]::Min(4, $capBits - $bits.Count)
+    for ($i = 0; $i -lt $term; $i++) { [void]$bits.Add(0) }
+    while ($bits.Count % 8 -ne 0) { [void]$bits.Add(0) }
+    $pads = @(236,17); $pi=0
+    while ($bits.Count -lt $capBits) {
+        $pb = $pads[$pi]; $pi = 1 - $pi
+        for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($pb -shr $b) -band 1)) }
+    }
+    $dataCW = @()
+    for ($i = 0; $i -lt $bits.Count; $i += 8) {
+        $byte = 0; for ($j=0;$j -lt 8;$j++){ $byte = ($byte -shl 1) -bor $bits[$i+$j] }
+        $dataCW += $byte
+    }
+    return $dataCW
+}
+
 function GetGen($n) {
     $g = @(1)
     for ($i = 0; $i -lt $n; $i++) {
@@ -1187,15 +1263,14 @@ function New-QRCode {
     if ($Symbol -eq 'rMQR') {
         if ($ECLevel -ne 'M' -and $ECLevel -ne 'H') { throw "rMQR solo admite ECLevel 'M' o 'H'" }
         $ecUse = $ECLevel
-        $rawBits = New-Object System.Collections.ArrayList
-        foreach ($b in [Text.Encoding]::UTF8.GetBytes($Data)) { for ($i = 7; $i -ge 0; $i--) { [void]$rawBits.Add([int](($b -shr $i) -band 1)) } }
         $ordered = ($script:RMQR_SPEC.GetEnumerator() | Sort-Object { $_.Value.H } , { $_.Value.W })
         $chosenKey = $null
         foreach ($kv in $ordered) {
             $ver = $kv.Key; $spec = $kv.Value
             $de = if ($ecUse -eq 'H') { $spec.H2 } else { $spec.M }
             $capBitsDataTmp = $de.D * 8
-            if ($capBitsDataTmp -ge $rawBits.Count) { $chosenKey = $ver; break }
+            $probe = RMQREncode $Data $spec $ecUse
+            if ($probe.Count -le $de.D) { $chosenKey = $ver; break }
         }
         if (-not $chosenKey) { throw "Datos muy largos para rMQR" }
         $spec = $script:RMQR_SPEC[$chosenKey]
@@ -1209,16 +1284,7 @@ function New-QRCode {
         for ($r = 7; $r -lt $h; $r++) { $v = ($r % 2) -eq 0; if (-not $m.Func["$r,6"]) { $m.Func["$r,6"]=$true; $m.Mod["$r,6"]=[int]$v } }
         $de = if ($ecUse -eq 'H') { $spec.H2 } else { $spec.M }
         $capacityBits = $de.D * 8
-        $bits = New-Object System.Collections.ArrayList
-        [void]$bits.AddRange($rawBits)
-        if ($bits.Count -gt $capacityBits) { throw "Datos exceden capacidad rMQR" }
-        $term = [Math]::Min(4, $capacityBits - $bits.Count)
-        for ($i = 0; $i -lt $term; $i++) { [void]$bits.Add(0) }
-        while ($bits.Count % 8 -ne 0) { [void]$bits.Add(0) }
-        $pads = @(236,17); $pi = 0
-        while ($bits.Count -lt $capacityBits) { $pb = $pads[$pi]; $pi = 1 - $pi; for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($pb -shr $b) -band 1)) } }
-        $dataCW = @()
-        for ($i = 0; $i -lt $bits.Count; $i += 8) { $byte = 0; for ($j = 0; $j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i+$j] } $dataCW += $byte }
+        $dataCW = RMQREncode $Data $spec $ecUse
         $eccLen = $de.E
         $blocks = 1
         if ($eccLen -ge 36 -and $eccLen -lt 80) { $blocks = 2 } elseif ($eccLen -ge 80) { $blocks = 4 }
