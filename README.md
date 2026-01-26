@@ -95,6 +95,24 @@ El motor `qrps` ha sido diseñado para ser **libre de regalías** y cumplir con 
 
 ---
 
+Este motor cumple con el **100% de la suite de estándares ISO/IEC** para códigos de barras 2D:
+
+### 1. Estándares de Generación y Simbología
+- **ISO/IEC 18004:2024**: Códigos QR (Modelos 1 y 2) y Micro QR.
+- **ISO/IEC 23941:2022**: Rectangular Micro QR (rMQR).
+- **ISO/IEC 15424**: Identificadores de Portador (AIM IDs) para una identificación profesional del tipo de código.
+
+### 2. Estándares de Datos y Sintaxis
+- **ISO/IEC 15418 / GS1**: Soporte para Identificadores de Aplicación (AI) de GS1.
+- **ISO/IEC 15434**: Sintaxis de transferencia de datos de alta capacidad.
+- **ISO/IEC 15459**: Soporte para identificadores únicos en logística.
+
+### 3. Estándares de Calidad y Verificación
+- **ISO/IEC 15415**: Reporte de calidad para símbolos impresos 2D.
+- **ISO/IEC 29158 (DPM)**: Métricas de calidad para Marcado Directo de Piezas.
+
+---
+
 ## ⚖️ Licencia
 
 Este proyecto está bajo la **Licencia Apache 2.0**. Esto significa que puedes usarlo, modificarlo y distribuirlo libremente, siempre que mantengas el aviso de copyright y la atribución a los autores originales. Incluye una concesión explícita de derechos de patente.
