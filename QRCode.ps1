@@ -13,7 +13,8 @@ param(
     [Parameter(Mandatory=$false)][string]$InputFile,
     [Parameter(Mandatory=$false)][string]$OutputDir,
     [Parameter(Mandatory=$false)][string]$IniPath = ".\config.ini",
-    [string]$OutputPath = "",
+    [Parameter(Mandatory=$false)][string]$OutputPath = "",
+    [Parameter(Mandatory=$false)][string]$InputPath = "",
     [ValidateSet('L','M','Q','H')][string]$ECLevel = 'M',
     [int]$Version = 0,
     [int]$ModuleSize = 10,
@@ -44,15 +45,15 @@ function Poly-Eval-GF($p, $x) { $y = 0; foreach($c in $p){ $y = (GFMul $y $x) -b
 
 
 function ReadRMQRFormatInfo($m) {
-    # TL: (7, 0..8) - bits 0 to 8
-    # TL: (0..8, 7) - bits 9 to 17
+    # TL: Use columns 7, 8, 9 (rows 0-5)
     $bits = @()
-    for($i=0; $i -lt 9; $i++){ $bits += $m.Mod["7,$i"] }
-    for($i=0; $i -lt 9; $i++){ $bits += $m.Mod["$i,7"] }
+    for($i=0; $i -lt 6; $i++){ $bits += $m.Mod["$i,7"] }
+    for($i=0; $i -lt 6; $i++){ $bits += $m.Mod["$i,8"] }
+    for($i=0; $i -lt 6; $i++){ $bits += $m.Mod["$i,9"] }
     
     # Unmask with TL mask
     $mask = $script:RMQR_FMT_MASKS.TL
-    for($i=0; $i -lt 18; $i++){ $bits[$i] = $bits[$i] -bxor $mask[$i] }
+    for($i=0; $i -lt 18; $i++){ $bits[$i] = [int]$bits[$i] -bxor $mask[$i] }
     
     # Format info: [EC(1), VI(5), BCH(12)]
     $ecBit = $bits[0]
@@ -104,9 +105,10 @@ function DecodeRMQRStream($bytes, $spec) {
     $eciActive = 26
     $cbMap = Get-RMQRCountBitsMap $spec
     
-    while ($idx + 4 -le $bits.Count) {
-        $mi = ($bits[$idx] -shl 3) -bor ($bits[$idx+1] -shl 2) -bor ($bits[$idx+2] -shl 1) -bor $bits[$idx+3]
-        $idx += 4
+    while ($idx + 3 -le $bits.Count) {
+        $mi = ($bits[$idx] -shl 2) -bor ($bits[$idx+1] -shl 1) -bor $bits[$idx+2]
+        Write-Status "Debug: mi=$mi at idx=$idx bits=$($bits[$idx..($idx+2)] -join '')"
+        $idx += 3
         if ($mi -eq 0) { break }
         if ($mi -eq 7) { # ECI
             # Handle ECI
@@ -127,7 +129,7 @@ function DecodeRMQRStream($bytes, $spec) {
             }
             break
         }
-        $mode = switch ($mi) { 1{'N'} 2{'A'} 4{'B'} 8{'K'} default{'X'} }
+        $mode = switch ($mi) { 1{'N'} 2{'A'} 3{'B'} 4{'K'} default{'X'} }
         if ($mode -eq 'X') { break }
         $cb = switch ($mode) { 'N' { $cbMap.N } 'A' { $cbMap.A } 'B' { $cbMap.B } 'K' { $cbMap.K } }
         if ($idx + $cb -gt $bits.Count) { break }
@@ -159,7 +161,7 @@ function DecodeRMQRStream($bytes, $spec) {
                     $c1 = [Math]::Floor($val / 45); $c2 = $val % 45
                     $out += $script:ALPH[$c1] + $script:ALPH[$c2]
                 } else {
-                    $val = 0; for ($b=0;$b -lt 5;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 5
+                    $val = 0; for ($b=0;$b -lt 6;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 6
                     $out += $script:ALPH[$val]
                 }
             }
@@ -189,14 +191,66 @@ function DecodeRMQRStream($bytes, $spec) {
     return @{ Text=$resultTxt; Segments=$segs; ECI=$eciActive }
 }
 
+function InitRMQRMatrix($spec) {
+    $h = $spec.H; $w = $spec.W
+    $m = @{ Height = $h; Width = $w; Mod = @{}; Func = @{} }
+    for ($r = 0; $r -lt $h; $r++) { for ($c = 0; $c -lt $w; $c++) { $m.Mod["$r,$c"]=0; $m.Func["$r,$c"]=$false } }
+    
+    # Finder Patterns (TL and BR)
+    for ($dy = -1; $dy -le 7; $dy++) { 
+        for ($dx = -1; $dx -le 7; $dx++) { 
+            # Top-Left
+            $rr = 0 + $dy; $cc = 0 + $dx
+            if ($rr -ge 0 -and $cc -ge 0 -and $rr -ge 0 -and $rr -lt $h -and $cc -lt $w) {
+                $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
+                if (-not $in) { $m.Func["$rr,$cc"]=$true; continue }
+                $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
+                $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
+                $m.Func["$rr,$cc"]=$true; $m.Mod["$rr,$cc"]=([int]($on -or $cent))
+            }
+            # Bottom-Right
+            $rr = ($h - 7) + $dy; $cc = ($w - 7) + $dx
+            if ($rr -ge 0 -and $cc -ge 0 -and $rr -lt $h -and $cc -lt $w) {
+                $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
+                if (-not $in) { $m.Func["$rr,$cc"]=$true; continue }
+                $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
+                $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
+                $m.Func["$rr,$cc"]=$true; $m.Mod["$rr,$cc"]=([int]($on -or $cent))
+            }
+        }
+    }
+    
+    # Timing patterns
+    for ($c = 7; $c -lt $w; $c++) { $v = ($c % 2) -eq 0; if (-not $m.Func["6,$c"]) { $m.Func["6,$c"]=$true; $m.Mod["6,$c"]=[int]$v } }
+    for ($r = 7; $r -lt $h; $r++) { $v = ($r % 2) -eq 0; if (-not $m.Func["$r,6"]) { $m.Func["$r,6"]=$true; $m.Mod["$r,6"]=[int]$v } }
+    
+    # Format Info areas (TL and BR)
+    # TL: Use columns 7, 8, 9 (rows 0-5)
+    for ($i=0;$i -lt 6;$i++){ $m.Func["$i,7"]=$true; $m.Func["$i,8"]=$true; $m.Func["$i,9"]=$true }
+    # BR: Use columns w-8, w-9, w-10 (rows 0-5)
+    for ($i=0;$i -lt 6;$i++){ $m.Func["$i,$($w-8)"]=$true; $m.Func["$i,$($w-9)"]=$true; $m.Func["$i,$($w-10)"]=$true }
+    
+    # Alignment patterns for large rMQR (if any - RMQR_SPEC has sub-regions)
+    # ISO 23941 defines sub-finder patterns for versions with more than 1 sub-region.
+    # Our SPEC has D, H, W, VI, etc. but doesn't explicitly list sub-finders.
+    # However, the current implementation in New-QRCode doesn't add them either.
+    
+    return $m
+}
+
 function Decode-RMQRMatrix($m) {
     $fi = ReadRMQRFormatInfo $m
     $spec = $null
     foreach($k in $script:RMQR_SPEC.Keys){ if($script:RMQR_SPEC[$k].VI -eq $fi.VI){ $spec = $script:RMQR_SPEC[$k]; break } }
     if(-not $spec){ throw "Versión rMQR no soportada: VI=$($fi.VI)" }
     
+    # Marcar módulos funcionales para que UnmaskRMQR funcione correctamente
+    $temp = InitRMQRMatrix $spec
+    $m.Func = $temp.Func
+    
     $um = UnmaskRMQR $m
     $bits = ExtractBitsRMQR $um
+    Write-Status "Debug bits: $($bits[0..23] -join '')"
     
     $allBytes = @()
     for ($i=0;$i -lt $bits.Count; $i += 8) {
@@ -259,6 +313,110 @@ function Decode-RMQRMatrix($m) {
     }
 
     return DecodeRMQRStream $dataBytes $spec
+}
+
+function Import-QRCode($path) {
+    if ($path.ToLower().EndsWith(".svg")) {
+        [xml]$svg = Get-Content $path
+        $viewBox = $svg.svg.viewBox -split " "
+        if ($viewBox.Count -lt 4) { throw "SVG inválido (sin viewBox)" }
+        $wUnits = [int][double]$viewBox[2]
+        $hUnits = [int][double]$viewBox[3]
+        
+        # Seleccionar rectángulos negros (pueden tener fill=#000000, fill=black, o heredar del padre)
+        $rects = $svg.SelectNodes("//*[local-name()='rect']") | Where-Object { 
+            $f = $_.Attributes["fill"]
+            ($null -eq $f) -or ($f.Value -eq "#000000") -or ($f.Value -eq "black")
+        } | Where-Object { $null -ne $_.Attributes["x"] }
+        
+        if ($rects.Count -eq 0) { throw "No se encontraron módulos negros en el SVG" }
+        
+        $minX = $wUnits; $minY = $hUnits
+        foreach($r in $rects) {
+            $rx = [int][double]$r.Attributes["x"].Value
+            $ry = [int][double]$r.Attributes["y"].Value
+            if($rx -lt $minX){ $minX = $rx }
+            if($ry -lt $minY){ $minY = $ry }
+        }
+        
+        # El quiet zone es el margen mínimo encontrado
+        $quiet = $minX
+        $width = $wUnits - 2 * $quiet
+        $height = $hUnits - 2 * $quiet
+        
+        $m = @{ Size = $width; Width = $width; Height = $height; Mod = @{}; Func = @{} }
+        foreach($r in $rects) {
+            $col = [int][double]$r.Attributes["x"].Value - $quiet
+            $row = [int][double]$r.Attributes["y"].Value - $quiet
+            if ($row -ge 0 -and $row -lt $height -and $col -ge 0 -and $col -lt $width) {
+                $m.Mod["$row,$col"] = 1
+            }
+        }
+        for($r=0; $r -lt $height; $r++) {
+            for($c=0; $c -lt $width; $c++) {
+                if(-not $m.Mod.ContainsKey("$r,$c")){ $m.Mod["$r,$c"] = 0 }
+                $m.Func["$r,$c"] = $false 
+            }
+        }
+        return $m
+    } else {
+        Add-Type -AssemblyName System.Drawing
+        $bmp = New-Object Drawing.Bitmap $path
+        try {
+            $w = $bmp.Width; $h = $bmp.Height
+            
+            # 1. Encontrar el primer pixel negro
+            $found = $false; $x0 = 0; $y0 = 0
+            for($y=0; $y -lt $h; $y++) {
+                for($x=0; $x -lt $w; $x++) {
+                    if($bmp.GetPixel($x, $y).R -lt 128) { $x0 = $x; $y0 = $y; $found = $true; break }
+                }
+                if($found){ break }
+            }
+            if(-not $found){ throw "No se encontró código QR en la imagen" }
+            
+            # 2. Detectar escala usando el GCD de las rachas de pixeles
+            $runs = @()
+            $currentLen = 0; $currentVal = -1
+            # Escanear una fila que sepamos que tiene datos
+            for($x = 0; $x -lt $w; $x++) {
+                $v = if($bmp.GetPixel($x, $y0).R -lt 128){ 1 } else { 0 }
+                if($v -eq $currentVal) { $currentLen++ }
+                else {
+                    if($currentVal -ne -1){ $runs += $currentLen }
+                    $currentVal = $v; $currentLen = 1
+                }
+            }
+            $runs += $currentLen
+            
+            $gcd = { param($a,$b) while($b){$t=$a;$a=$b;$b=$t%$b}; $a }
+            $scale = $runs[0]
+            foreach($r in $runs){ if($r -gt 0){ $scale = &$gcd $scale $r } }
+            
+            # 3. Reconstruir matriz
+            $quietX = [Math]::Round($x0 / $scale)
+            $quietY = [Math]::Round($y0 / $scale)
+            $modW = [Math]::Round($w / $scale) - 2 * $quietX
+            $modH = [Math]::Round($h / $scale) - 2 * $quietY
+            
+            $m = @{ Size = $modW; Width = $modW; Height = $modH; Mod = @{}; Func = @{} }
+            for($r=0; $r -lt $modH; $r++) {
+                for($c=0; $c -lt $modW; $c++) {
+                    $sampleX = ($c + $quietX) * $scale + [Math]::Floor($scale / 2)
+                    $sampleY = ($r + $quietY) * $scale + [Math]::Floor($scale / 2)
+                    if ($sampleX -lt $w -and $sampleY -lt $h) {
+                        $m.Mod["$r,$c"] = if($bmp.GetPixel($sampleX, $sampleY).R -lt 128){ 1 } else { 0 }
+                    } else {
+                        $m.Mod["$r,$c"] = 0
+                    }
+                    $m.Func["$r,$c"] = $false
+                }
+            }
+            return $m
+        } finally {
+            $bmp.Dispose()
+        }
+    }
 }
 
 function New-RS($data, $ecn) {
@@ -938,11 +1096,11 @@ function RMQREncode($txt, $spec, $ec) {
     foreach ($seg in $segments) {
         $mode = $seg.Mode; $txtS = $seg.Data
         switch ($mode) {
-            'N'{[void]$bits.AddRange(@(0,0,0,1))}
-            'A'{[void]$bits.AddRange(@(0,0,1,0))}
-            'B'{[void]$bits.AddRange(@(0,1,0,0))}
-            'K'{[void]$bits.AddRange(@(1,0,0,0))}
-            'ECI'{[void]$bits.AddRange(@(0,1,1,1))}
+            'N'{[void]$bits.AddRange(@(0,0,1))}
+            'A'{[void]$bits.AddRange(@(0,1,0))}
+            'B'{[void]$bits.AddRange(@(0,1,1))}
+            'K'{[void]$bits.AddRange(@(1,0,0))}
+            'ECI'{[void]$bits.AddRange(@(1,1,1))}
         }
         if ($mode -eq 'ECI') {
             $val = [int]$txtS
@@ -1014,18 +1172,16 @@ function RMQREncode($txt, $spec, $ec) {
 }
 
 function Get-RMQRCountBitsMap($spec) {
-    $h = $spec.H; $w = $spec.W
-    $grp = $null
-    if ($w -ge 99) { $grp = 'L' }
-    elseif ($h -le 9) {
-        if ($w -ge 77) { $grp = 'M' } else { $grp = 'S' }
-    }
-    elseif ($h -le 13) { $grp = 'M' }
-    else { $grp = 'L' }
+    $totalCW = $spec.M.D + $spec.M.E
+    $totalBits = $totalCW * 8
+    $grp = 'S'
+    if ($totalBits -ge 640) { $grp = 'L' }
+    elseif ($totalBits -ge 320) { $grp = 'M' }
+    
     switch ($grp) {
         'S' { return @{ N=10; A=9;  B=8;  K=8 } }
-        'M' { return @{ N=12; A=11; B=16; K=10 } }
-        'L' { return @{ N=14; A=13; B=16; K=12 } }
+        'M' { return @{ N=12; A=11; B=10; K=10 } }
+        'L' { return @{ N=14; A=13; B=12; K=12 } }
     }
 }
 
@@ -1530,6 +1686,10 @@ function DecodeQRStream($bytes, $ver) {
 
 function Decode-QRCodeMatrix($m) {
     $ver = [int](($m.Size - 17) / 4)
+    # Marcar módulos funcionales para que UnmaskQR funcione correctamente
+    $temp = InitM $ver
+    $m.Func = $temp.Func
+    
     $fi = ReadFormatInfo $m
     if (-not $fi.EC -or $fi.Mask -lt 0) { throw "Formato inválido" }
     $um = UnmaskQR $m $fi.Mask
@@ -2054,13 +2214,8 @@ function New-QRCode {
         if (-not $chosenKey) { throw "Datos muy largos para rMQR" }
         $spec = $script:RMQR_SPEC[$chosenKey]
         $h = $spec.H; $w = $spec.W
-        $m = @{}
-        $m.Height = $h; $m.Width = $w; $m.Mod=@{}; $m.Func=@{}
-        for ($r = 0; $r -lt $h; $r++) { for ($c = 0; $c -lt $w; $c++) { $m.Mod["$r,$c"]=0; $m.Func["$r,$c"]=$false } }
-        for ($dy = -1; $dy -le 7; $dy++) { for ($dx = -1; $dx -le 7; $dx++) { $rr = 0 + $dy; $cc = 0 + $dx; if ($rr -lt 0 -or $cc -lt 0 -or $rr -ge $h -or $cc -ge $w) { continue } $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6; if (-not $in) { $m.Func["$rr,$cc"]=$true; $m.Mod["$rr,$cc"]=0; continue } $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6; $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4; $m.Func["$rr,$cc"]=$true; $m.Mod["$rr,$cc"]=([int]($on -or $cent)) } }
-        for ($dy = -1; $dy -le 7; $dy++) { for ($dx = -1; $dx -le 7; $dx++) { $rr = ($h - 7) + $dy; $cc = ($w - 7) + $dx; if ($rr -lt 0 -or $cc -lt 0 -or $rr -ge $h -or $cc -ge $w) { continue } $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6; if (-not $in) { $m.Func["$rr,$cc"]=$true; $m.Mod["$rr,$cc"]=0; continue } $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6; $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4; $m.Func["$rr,$cc"]=$true; $m.Mod["$rr,$cc"]=([int]($on -or $cent)) } }
-        for ($c = 7; $c -lt $w; $c++) { $v = ($c % 2) -eq 0; if (-not $m.Func["6,$c"]) { $m.Func["6,$c"]=$true; $m.Mod["6,$c"]=[int]$v } }
-        for ($r = 7; $r -lt $h; $r++) { $v = ($r % 2) -eq 0; if (-not $m.Func["$r,6"]) { $m.Func["$r,6"]=$true; $m.Mod["$r,6"]=[int]$v } }
+        $m = InitRMQRMatrix $spec
+        
         $de = if ($ecUse -eq 'H') { $spec.H2 } else { $spec.M }
         $capacityBits = $de.D * 8
         $dataCW = RMQREncode $Data $spec $ecUse
@@ -2149,18 +2304,15 @@ function New-QRCode {
         for ($i=0;$i -lt 18;$i++){ $fmtTL += ($fmt[$i] -bxor $script:RMQR_FMT_MASKS.TL[$i]) }
         $fmtBR = @()
         for ($i=0;$i -lt 18;$i++){ $fmtBR += ($fmt[$i] -bxor $script:RMQR_FMT_MASKS.BR[$i]) }
-        for ($i=0;$i -lt 9;$i++){
-            $m.Func["7,$i"]=$true; $m.Mod["7,$i"]=$fmtTL[$i]
-        }
-        for ($i=9;$i -lt 18;$i++){
-            $m.Func["$($i-9),7"]=$true; $m.Mod["$($i-9),7"]=$fmtTL[$i]
-        }
-        for ($i=0;$i -lt 9;$i++){
-            $m.Func["$($h-8),$($w-1-$i)"]=$true; $m.Mod["$($h-8),$($w-1-$i)"]=$fmtBR[$i]
-        }
-        for ($i=9;$i -lt 18;$i++){
-            $m.Func["$($h-1-($i-9)),$($w-8)"]=$true; $m.Mod["$($h-1-($i-9)),$($w-8)"]=$fmtBR[$i]
-        }
+        # TL Format Info
+        for ($i=0;$i -lt 6;$i++){ $m.Func["$i,7"]=$true; $m.Mod["$i,7"]=$fmtTL[$i] }
+        for ($i=0;$i -lt 6;$i++){ $m.Func["$i,8"]=$true; $m.Mod["$i,8"]=$fmtTL[$i+6] }
+        for ($i=0;$i -lt 6;$i++){ $m.Func["$i,9"]=$true; $m.Mod["$i,9"]=$fmtTL[$i+12] }
+        
+        # BR Format Info
+        for ($i=0;$i -lt 6;$i++){ $m.Func["$i,$($w-8)"]=$true; $m.Mod["$i,$($w-8)"]=$fmtBR[$i] }
+        for ($i=0;$i -lt 6;$i++){ $m.Func["$i,$($w-9)"]=$true; $m.Mod["$i,$($w-9)"]=$fmtBR[$i+6] }
+        for ($i=0;$i -lt 6;$i++){ $m.Func["$i,$($w-10)"]=$true; $m.Mod["$i,$($w-10)"]=$fmtBR[$i+12] }
         Write-Status "Version: R$h`x$w"
         Write-Status "EC: $ecUse"
         $cap = $script:RMQR_CAP[$chosenKey][$ecUse]
@@ -2173,10 +2325,15 @@ function New-QRCode {
             $qm = GetQualityMetrics $m
             Write-Status "Calidad: Oscuros $($qm.DarkPct)%, Bloques2x2 $($qm.Blocks2x2), QuietZone min $($qm.RecommendedQuiet)"
         }
-        if ($Decode) {
-            $dec = Decode-RMQRMatrix $m
-            Write-Status "Decodificado: $($dec.Text)"
+    if ($Decode) {
+        $dec = Decode-RMQRMatrix $m
+        Write-Status "Decodificado con éxito:"
+        Write-Status "Contenido: $($dec.Text)"
+        Write-Status "ECI: $($dec.ECI)"
+        foreach($s in $dec.Segments){
+            Write-Status "  - Modo $($s.Mode): $($s.Data)"
         }
+    }
         if ($OutputPath) {
             $isSvg = $OutputPath.ToLower().EndsWith(".svg")
             $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
@@ -2515,7 +2672,29 @@ function Start-BatchProcessing {
 
 # Ejecutar proceso batch si existe config.ini y se llama el script directamente
 # ENTRY POINT
-if (-not [string]::IsNullOrEmpty($Data)) {
+if ($Decode -and -not [string]::IsNullOrEmpty($InputPath)) {
+    Write-Status "Importando archivo para decodificación: $InputPath"
+    $m = Import-QRCode $InputPath
+    
+    try {
+        if ($m.Width -ne $m.Height) {
+            Write-Status "Detectado: rMQR"
+            $dec = Decode-RMQRMatrix $m
+        } else {
+            Write-Status "Detectado: QR / Micro QR"
+            # Intentar decodificar como QR normal
+            $dec = Decode-QRCodeMatrix $m
+        }
+        Write-Host "`nDecodificado con éxito:" -ForegroundColor Green
+        Write-Host "Contenido: $($dec.Text)"
+        if ($dec.ECI -ne 0) { Write-Host "ECI: $($dec.ECI)" }
+        foreach ($s in $dec.Segments) {
+            Write-Host "  - Modo $($s.Mode): $($s.Data)"
+        }
+    } catch {
+        Write-Error "Error al decodificar: $_"
+    }
+} elseif (-not [string]::IsNullOrEmpty($Data)) {
     # Modo CLI Directo (Un solo QR)
     New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole -Decode:$Decode -QualityReport:$QualityReport
 } else {
