@@ -102,7 +102,9 @@ El motor `qrps` ha sido diseñado para ser **libre de regalías** y cumplir con 
 
 ## 🧪 Pruebas y Validación (QA)
 
-Para garantizar el cumplimiento de los estándares ISO tras cualquier modificación, el proyecto incluye una suite de pruebas automatizadas:
+Para garantizar el cumplimiento de los estándares ISO tras cualquier modificación, el proyecto incluye una suite de pruebas automatizadas y recomendaciones de análisis estático:
+
+### Pruebas Funcionales
 
 | Script | Propósito | Cobertura |
 | :--- | :--- | :--- |
@@ -110,6 +112,47 @@ Para garantizar el cumplimiento de los estándares ISO tras cualquier modificaci
 | **[verify_file_decoding.ps1](file:///c:/Users/kgrb/Documents/GitHUb/qrps/verify_file_decoding.ps1)** | Integración de Archivos | Valida el ciclo completo de exportación y lectura de PNG/SVG. |
 | **[test_rmqr.ps1](file:///c:/Users/kgrb/Documents/GitHUb/qrps/test_rmqr.ps1)** | Simbología rMQR | Valida las 27 versiones rectangulares y su decodificación. |
 | **[test_sa.ps1](file:///c:/Users/kgrb/Documents/GitHUb/qrps/test_sa.ps1)** | Structured Append | Verifica la división de datos y el cálculo de paridad ISO 15434. |
+
+### Análisis Estático (Lint & Typecheck)
+
+Se recomienda realizar un análisis estático antes de cada commit para asegurar la calidad del código.
+
+#### 1. Lint (PSScriptAnalyzer)
+Analiza problemas de estilo y prácticas inseguras.
+```powershell
+# Instalación (una vez)
+Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+
+# Ejecución en todo el repo
+Invoke-ScriptAnalyzer -Path .\ -Recurse
+```
+
+#### 2. Typecheck (Validación de sintaxis)
+Detecta errores de parseo sin ejecutar el script.
+```powershell
+[System.Management.Automation.Language.Parser]::ParseFile("$PWD\QRCode.ps1", [ref]$null, [ref]$null) | Out-Null
+```
+
+#### 3. Integración Continua (GitHub Actions)
+Sugerencia para automatizar la validación en cada push:
+```yaml
+name: lint
+on: [push, pull_request]
+jobs:
+  ps-lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar PSScriptAnalyzer
+        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+      - name: Lint
+        run: Invoke-ScriptAnalyzer -Path . -Recurse
+      - name: Typecheck
+        run: |
+          $err=$null;$tok=$null;
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path .\QRCode.ps1), [ref]$tok, [ref]$err) | Out-Null
+          if ($err) { throw 'Errores de sintaxis en QRCode.ps1' }
+```
 
 ---
 
