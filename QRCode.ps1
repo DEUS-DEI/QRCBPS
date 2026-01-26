@@ -1,11 +1,13 @@
 #Requires -Version 5.1
 <#
-<#
 .SYNOPSIS
     QR Code Generator FINAL - PowerShell Nativo 100% Funcional
 .DESCRIPTION
-    ImplementaciÃ³n completa siguiendo ISO/IEC 18004
+    Implementación completa siguiendo ISO/IEC 18004
     Genera QR codes escaneables
+
+    Copyright 2026 The qrps contributors
+    Licensed under the Apache License, Version 2.0
 #>
 [CmdletBinding()]
 param(

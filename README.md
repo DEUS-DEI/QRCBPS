@@ -94,4 +94,10 @@ El motor `qrps` ha sido diseñado para ser **libre de regalías** y cumplir con 
 ```
 
 ---
+
+## ⚖️ Licencia
+
+Este proyecto está bajo la **Licencia Apache 2.0**. Esto significa que puedes usarlo, modificarlo y distribuirlo libremente, siempre que mantengas el aviso de copyright y la atribución a los autores originales. Incluye una concesión explícita de derechos de patente.
+
+---
 *Análisis y cumplimiento actualizado al 25 de enero de 2026 bajo estándares ISO/IEC.*
