@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 <#
 .SYNOPSIS
@@ -38,6 +38,319 @@ $script:EXP = @(1,2,4,8,16,32,64,128,29,58,116,232,205,135,19,38,76,152,45,90,18
 $script:LOG = @(0,0,1,25,2,50,26,198,3,223,51,238,27,104,199,75,4,100,224,14,52,141,239,129,28,193,105,248,200,8,76,113,5,138,101,47,225,36,15,33,53,147,142,218,240,18,130,69,29,181,194,125,106,39,249,185,201,154,9,120,77,228,114,166,6,191,139,98,102,221,48,253,226,152,37,179,16,145,34,136,54,208,148,206,143,150,219,189,241,210,19,92,131,56,70,64,30,66,182,163,195,72,126,110,107,58,40,84,250,133,186,61,202,94,155,159,10,21,121,43,78,212,229,172,115,243,167,87,7,112,192,247,140,128,99,13,103,74,222,237,49,197,254,24,227,165,153,119,38,184,180,124,17,68,146,217,35,32,137,46,55,63,209,91,149,188,207,205,144,135,151,178,220,252,190,97,242,86,211,171,20,42,93,158,132,60,57,83,71,109,65,162,31,45,67,216,183,123,164,118,196,23,73,236,127,12,111,246,108,161,59,82,41,157,85,170,251,96,134,177,187,204,62,90,203,89,95,176,156,169,160,81,11,245,22,235,122,117,44,215,79,174,213,233,230,231,173,232,116,214,244,234,168,80,88,175)
 
 function GFMul($a,$b) { if($a -eq 0 -or $b -eq 0){return 0}; $s=$script:LOG[$a]+$script:LOG[$b]; if($s -ge 255){$s-=255}; return $script:EXP[$s] }
+function GFInv($a) { if($a -eq 0){return 0}; return $script:EXP[255 - $script:LOG[$a]] }
+function GFDiv($a,$b) { if($a -eq 0){return 0}; if($b -eq 0){throw "Div por cero"}; $s=$script:LOG[$a]-$script:LOG[$b]; if($s -lt 0){$s+=255}; return $script:EXP[$s] }
+function Poly-Eval-GF($p, $x) { $y = 0; foreach($c in $p){ $y = (GFMul $y $x) -bxor $c }; return $y }
+
+
+function ReadRMQRFormatInfo($m) {
+    # TL: (7, 0..8) - bits 0 to 8
+    # TL: (0..8, 7) - bits 9 to 17
+    $bits = @()
+    for($i=0; $i -lt 9; $i++){ $bits += $m.Mod["7,$i"] }
+    for($i=0; $i -lt 9; $i++){ $bits += $m.Mod["$i,7"] }
+    
+    # Unmask with TL mask
+    $mask = $script:RMQR_FMT_MASKS.TL
+    for($i=0; $i -lt 18; $i++){ $bits[$i] = $bits[$i] -bxor $mask[$i] }
+    
+    # Format info: [EC(1), VI(5), BCH(12)]
+    $ecBit = $bits[0]
+    $vi = 0; for($i=1; $i -le 5; $i++){ $vi = ($vi -shl 1) -bor $bits[$i] }
+    
+    return @{ EC = if($ecBit -eq 1){'H'}else{'M'}; VI = $vi }
+}
+
+function UnmaskRMQR($m) {
+    $r = @{ Height = $m.Height; Width = $m.Width; Mod = @{}; Func = @{} }
+    for ($row = 0; $row -lt $m.Height; $row++) {
+        for ($col = 0; $col -lt $m.Width; $col++) {
+            $r.Func["$row,$col"] = $m.Func["$row,$col"]
+            $v = $m.Mod["$row,$col"]
+            if (-not $m.Func["$row,$col"]) {
+                if ((($row + $col) % 2) -eq 0) { $v = 1 - $v }
+            }
+            $r.Mod["$row,$col"] = $v
+        }
+    }
+    return $r
+}
+
+function ExtractBitsRMQR($m) {
+    $bits = New-Object System.Collections.ArrayList
+    $up = $true
+    for ($right = $m.Width - 1; $right -ge 1; $right -= 2) {
+        if ($right -eq 6) { $right = 5 }
+        $rows = if ($up) { ($m.Height - 1)..0 } else { 0..($m.Height - 1) }
+        foreach ($row in $rows) {
+            for ($dc = 0; $dc -le 1; $dc++) {
+                $col = $right - $dc
+                if (-not $m.Func["$row,$col"]) {
+                    [void]$bits.Add($m.Mod["$row,$col"])
+                }
+            }
+        }
+        $up = -not $up
+    }
+    return $bits
+}
+
+function DecodeRMQRStream($bytes, $spec) {
+    $bits = New-Object System.Collections.ArrayList
+    foreach ($b in $bytes) { for ($i=7;$i -ge 0;$i--){ [void]$bits.Add([int](($b -shr $i) -band 1)) } }
+    $idx = 0
+    $resultTxt = ""
+    $segs = @()
+    $eciActive = 26
+    $cbMap = Get-RMQRCountBitsMap $spec
+    
+    while ($idx + 4 -le $bits.Count) {
+        $mi = ($bits[$idx] -shl 3) -bor ($bits[$idx+1] -shl 2) -bor ($bits[$idx+2] -shl 1) -bor $bits[$idx+3]
+        $idx += 4
+        if ($mi -eq 0) { break }
+        if ($mi -eq 7) { # ECI
+            # Handle ECI
+            if ($idx + 8 -le $bits.Count) {
+                if ($bits[$idx] -eq 0) {
+                    $val = 0; for ($i=0;$i -lt 8;$i++){ $val = ($val -shl 1) -bor $bits[$idx+$i] }
+                    $idx += 8
+                } elseif ($bits[$idx+1] -eq 0) {
+                    $val = 0; for ($i=2;$i -lt 16;$i++){ $val = ($val -shl 1) -bor $bits[$idx+$i] }
+                    $idx += 16
+                } else {
+                    $val = 0; for ($i=3;$i -lt 24;$i++){ $val = ($val -shl 1) -bor $bits[$idx+$i] }
+                    $idx += 24
+                }
+                $eciActive = $val
+                $segs += @{Mode='ECI'; Data="$val"}
+                continue
+            }
+            break
+        }
+        $mode = switch ($mi) { 1{'N'} 2{'A'} 4{'B'} 8{'K'} default{'X'} }
+        if ($mode -eq 'X') { break }
+        $cb = switch ($mode) { 'N' { $cbMap.N } 'A' { $cbMap.A } 'B' { $cbMap.B } 'K' { $cbMap.K } }
+        if ($idx + $cb -gt $bits.Count) { break }
+        $count = 0
+        for ($i=0;$i -lt $cb;$i++){ $count = ($count -shl 1) -bor $bits[$idx+$i] }
+        $idx += $cb
+        
+        if ($mode -eq 'N') {
+            $out = ""
+            $rem = $count % 3; $full = $count - $rem
+            for ($i=0;$i -lt $full; $i += 3) {
+                $val = 0; for ($b=0;$b -lt 10;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 10
+                $out += $val.ToString("D3")
+            }
+            if ($rem -eq 1) {
+                $val = 0; for ($b=0;$b -lt 4;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 4
+                $out += $val.ToString()
+            } elseif ($rem -eq 2) {
+                $val = 0; for ($b=0;$b -lt 7;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 7
+                $out += $val.ToString("D2")
+            }
+            $resultTxt += $out
+            $segs += @{Mode='N'; Data=$out}
+        } elseif ($mode -eq 'A') {
+            $out = ""
+            for ($i=0;$i -lt $count; $i += 2) {
+                if ($i + 1 -lt $count) {
+                    $val = 0; for ($b=0;$b -lt 11;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 11
+                    $c1 = [Math]::Floor($val / 45); $c2 = $val % 45
+                    $out += $script:ALPH[$c1] + $script:ALPH[$c2]
+                } else {
+                    $val = 0; for ($b=0;$b -lt 5;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 5
+                    $out += $script:ALPH[$val]
+                }
+            }
+            $resultTxt += $out
+            $segs += @{Mode='A'; Data=$out}
+        } elseif ($mode -eq 'B') {
+            $bytesOut = @()
+            for ($i=0;$i -lt $count; $i++) {
+                $val = 0; for ($b=0;$b -lt 8;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 8
+                $bytesOut += $val
+            }
+            $txt = [Text.Encoding]::UTF8.GetString([byte[]]$bytesOut)
+            $resultTxt += $txt
+            $segs += @{Mode='B'; Data=$txt}
+        } elseif ($mode -eq 'K') {
+            $out = ""
+            for ($i=0;$i -lt $count; $i++) {
+                $val = 0; for ($b=0;$b -lt 13;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 13
+                $msb = [Math]::Floor($val / 0xC0); $lsb = $val % 0xC0
+                $sjis = [byte[]]@($msb, $lsb)
+                $out += [System.Text.Encoding]::GetEncoding(932).GetString($sjis,0,2)
+            }
+            $resultTxt += $out
+            $segs += @{Mode='K'; Data=$out}
+        }
+    }
+    return @{ Text=$resultTxt; Segments=$segs; ECI=$eciActive }
+}
+
+function Decode-RMQRMatrix($m) {
+    $fi = ReadRMQRFormatInfo $m
+    $spec = $null
+    foreach($k in $script:RMQR_SPEC.Keys){ if($script:RMQR_SPEC[$k].VI -eq $fi.VI){ $spec = $script:RMQR_SPEC[$k]; break } }
+    if(-not $spec){ throw "Versión rMQR no soportada: VI=$($fi.VI)" }
+    
+    $um = UnmaskRMQR $m
+    $bits = ExtractBitsRMQR $um
+    
+    $allBytes = @()
+    for ($i=0;$i -lt $bits.Count; $i += 8) {
+        $byte = 0; for ($j=0;$j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i+$j] }
+        $allBytes += $byte
+    }
+
+    $de = if ($fi.EC -eq 'H') { $spec.H2 } else { $spec.M }
+    $eccLen = $de.E
+    $blocks = 1
+    if ($eccLen -ge 36 -and $eccLen -lt 80) { $blocks = 2 } elseif ($eccLen -ge 80) { $blocks = 4 }
+    
+    # Deinterleave rMQR: Data portion first, then EC portion
+    $dataLen = $de.D
+    $dataBytesInterleaved = $allBytes[0..($dataLen - 1)]
+    $ecBytesInterleaved = $allBytes[$dataLen..($dataLen + $eccLen - 1)]
+    
+    # Deinterleave data portion
+    $dataBlocks = @()
+    $baseD = [Math]::Floor($dataLen / $blocks)
+    $remD = $dataLen % $blocks
+    for($bix=0; $bix -lt $blocks; $bix++){
+        $len = $baseD
+        if ($bix -lt $remD) { $len += 1 }
+        $dataBlocks += ,(@(0) * $len)
+    }
+    $ptr = 0
+    for($i=0; $i -lt ($baseD + 1); $i++){
+        for($bix=0; $bix -lt $blocks; $bix++){
+            if($i -lt $dataBlocks[$bix].Count){
+                if($ptr -lt $dataBytesInterleaved.Count){ $dataBlocks[$bix][$i] = $dataBytesInterleaved[$ptr++] }
+            }
+        }
+    }
+    
+    # Deinterleave EC portion
+    $ecBlocks = @()
+    $baseE = [Math]::Floor($eccLen / $blocks)
+    $remE = $eccLen % $blocks
+    for($bix=0; $bix -lt $blocks; $bix++){
+        $len = $baseE
+        if ($bix -lt $remE) { $len += 1 }
+        $ecBlocks += ,(@(0) * $len)
+    }
+    $ptr = 0
+    for($i=0; $i -lt ($baseE + 1); $i++){
+        for($bix=0; $bix -lt $blocks; $bix++){
+            if($i -lt $ecBlocks[$bix].Count){
+                if($ptr -lt $ecBytesInterleaved.Count){ $ecBlocks[$bix][$i] = $ecBytesInterleaved[$ptr++] }
+            }
+        }
+    }
+    
+    $dataBytes = @()
+    for($bix=0; $bix -lt $blocks; $bix++){
+        $fullBlock = $dataBlocks[$bix] + $ecBlocks[$bix]
+        $corrected = Decode-ReedSolomon $fullBlock $ecBlocks[$bix].Count
+        if($null -eq $corrected){ throw "Error RS irreparable en bloque rMQR $bix" }
+        $dataBytes += $corrected
+    }
+
+    return DecodeRMQRStream $dataBytes $spec
+}
+
+function New-RS($data, $ecn) {
+    return GetEC $data $ecn
+}
+
+function Decode-ReedSolomon($msg, $nsym) {
+    # 1. Sindromes: S_i = C(alpha^i)
+    $syn = @(0) * $nsym
+    $hasError = $false
+    for ($i = 0; $i -lt $nsym; $i++) {
+        $s = Poly-Eval-GF $msg ($script:EXP[$i])
+        $syn[$i] = $s
+        if ($s -ne 0) { $hasError = $true }
+    }
+    if (-not $hasError) { return $msg[0..($msg.Count - $nsym - 1)] }
+
+    # 2. Berlekamp-Massey
+    # sigma: [s_L, ..., s_1, 1]
+    $sigma = @(1)
+    $b = @(1)
+    for ($i = 0; $i -lt $nsym; $i++) {
+        $b = $b + @(0) # b(x) = b(x) * x
+        $delta = $syn[$i]
+        for ($j = 1; $j -lt $sigma.Count; $j++) {
+            $delta = $delta -bxor (GFMul $sigma[$sigma.Count - 1 - $j] $syn[$i - $j])
+        }
+        
+        if ($delta -ne 0) {
+            if ($b.Count -gt $sigma.Count) {
+                $newSigma = @(0) * $b.Count
+                # newSigma = b * delta + sigma
+                $offset = $b.Count - $sigma.Count
+                for($k=0; $k -lt $b.Count; $k++) { $newSigma[$k] = GFMul $b[$k] $delta }
+                for($k=0; $k -lt $sigma.Count; $k++) { $newSigma[$k + $offset] = $newSigma[$k + $offset] -bxor $sigma[$k] }
+                
+                # b = oldSigma / delta
+                $invDelta = GFInv $delta
+                $b = @()
+                foreach($c in $sigma){ $b += GFMul $c $invDelta }
+                $sigma = $newSigma
+            } else {
+                # sigma = sigma + b * delta
+                $offset = $sigma.Count - $b.Count
+                for($k=0; $k -lt $b.Count; $k++) { $sigma[$k + $offset] = $sigma[$k + $offset] -bxor (GFMul $b[$k] $delta) }
+            }
+        }
+    }
+
+    # 3. Chien Search
+    $errPos = @()
+    for ($i = 0; $i -lt $msg.Count; $i++) {
+        $xinv = $script:EXP[255 - $i]
+        if ((Poly-Eval-GF $sigma $xinv) -eq 0) {
+            $errPos += $i
+        }
+    }
+    
+    if ($errPos.Count -ne ($sigma.Count - 1)) { return $null } 
+
+    # 4. Forney Algorithm
+    $omega = @(0) * ($sigma.Count - 1)
+    # Omega(x) = [S(x) * Sigma(x)] mod x^nsym
+    # We only need the first L terms of Omega
+    for ($i = 0; $i -lt $omega.Count; $i++) {
+        $val = 0
+        for ($j = 0; $j -le $i; $j++) {
+            # syn[i-j] * sigma[L-j]
+            $sigmaCoeff = $sigma[$sigma.Count - 1 - $j]
+            $val = $val -bxor (GFMul $syn[$i - $j] $sigmaCoeff)
+        }
+        $omega[$omega.Count - 1 - $i] = $val
+    }
+    
+    $sigmaDeriv = @()
+    for($i=1; $i -lt $sigma.Count; $i += 2){
+        $sigmaDeriv = @($sigma[$sigma.Count-1-$i]) + $sigmaDeriv
+    }
+
+    $res = [int[]]$msg
+    foreach($p in $errPos){
+        $xiInv = $script:EXP[255 - $p]
+        $xi = $script:EXP[$p]
+        $num = Poly-Eval-GF $omega $xiInv
+        $den = Poly-Eval-GF $sigmaDeriv (GFMul $xiInv $xiInv)
+        $err = GFMul $xi (GFDiv $num $den)
+        $res[$msg.Count - 1 - $p] = $res[$msg.Count - 1 - $p] -bxor $err
+    }
+
+    return $res[0..($msg.Count - $nsym - 1)]
+}
+
 
 # Format info strings (precalculated per ISO 18004)
 $script:FMT = @{
@@ -1222,14 +1535,54 @@ function Decode-QRCodeMatrix($m) {
     $um = UnmaskQR $m $fi.Mask
     $bits = ExtractBitsQR $um
     $spec = $script:SPEC["$ver$($fi.EC)"]
-    $cap = $spec.D
+    
     $allBytes = @()
     for ($i=0;$i -lt $bits.Count; $i += 8) {
         $byte = 0
         for ($j=0;$j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i+$j] }
         $allBytes += $byte
     }
-    $dataBytes = $allBytes[0..([Math]::Min($cap, $allBytes.Count)-1)]
+
+    # Desentrelazado y corrección Reed-Solomon
+    $ecIdx = switch($fi.EC){'L'{1}'M'{2}'Q'{3}'H'{4}}
+    $numBlocks = $NUM_EC_BLOCKS[$ver][$ecIdx]
+    $ecPerBlock = $ECC_PER_BLOCK[$ver][$ecIdx]
+    
+    $g1 = $spec.G1; $d1 = $spec.D1
+    $g2 = $spec.G2; $d2 = $spec.D2
+    
+    $blocks = @()
+    for($i=0; $i -lt $numBlocks; $i++){
+        $dataLen = if($i -lt $g1){$d1}else{$d2}
+        $blocks += ,(@(0) * ($dataLen + $ecPerBlock))
+    }
+
+    $ptr = 0
+    # 1. Leer datos (entrelazados)
+    for($j=0; $j -lt $d2; $j++){
+        for($i=0; $i -lt $numBlocks; $i++){
+            $dataLen = if($i -lt $g1){$d1}else{$d2}
+            if($j -lt $dataLen){
+                if($ptr -lt $allBytes.Count){ $blocks[$i][$j] = $allBytes[$ptr++] }
+            }
+        }
+    }
+    # 2. Leer EC (entrelazados)
+    for($j=0; $j -lt $ecPerBlock; $j++){
+        for($i=0; $i -lt $numBlocks; $i++){
+            $dataLen = if($i -lt $g1){$d1}else{$d2}
+            if($ptr -lt $allBytes.Count){ $blocks[$i][$dataLen + $j] = $allBytes[$ptr++] }
+        }
+    }
+
+    # 3. Corregir cada bloque
+    $dataBytes = @()
+    foreach($b in $blocks){
+        $corrected = Decode-ReedSolomon $b $ecPerBlock
+        if($null -eq $corrected){ throw "Error de corrección Reed-Solomon irreparable" }
+        $dataBytes += $corrected
+    }
+
     return DecodeQRStream $dataBytes $ver
 }
 
@@ -1821,7 +2174,8 @@ function New-QRCode {
             Write-Status "Calidad: Oscuros $($qm.DarkPct)%, Bloques2x2 $($qm.Blocks2x2), QuietZone min $($qm.RecommendedQuiet)"
         }
         if ($Decode) {
-            Write-Status "Decodificación no disponible para rMQR"
+            $dec = Decode-RMQRMatrix $m
+            Write-Status "Decodificado: $($dec.Text)"
         }
         if ($OutputPath) {
             $isSvg = $OutputPath.ToLower().EndsWith(".svg")

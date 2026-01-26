@@ -265,8 +265,9 @@ Paridad: 8 bits (XOR de datos)
 - ✅ **Implementado**: Reed-Solomon completo
 
 ### **Anexo C**: Algoritmo de Decodificación de Referencia
-- ✅ **Implementado**: Lectura de formato (EC/máscara), desmascarado y extracción de datos para **QR Modelo 2**. Soporta segmentos Numérico, Alfanumérico, Byte (UTF-8), Kanji (Shift-JIS), ECI, FNC1 y Structured Append.
-- ℹ️ **Alcance**: Decodificación de referencia para validación; no incluye reconstrucción RS ni rMQR.
+- ✅ **Implementado**: Algoritmo completo que incluye lectura de formato (EC/máscara), desmascarado, extracción de bits y decodificación de segmentos (Numérico, Alfanumérico, Byte/UTF-8, Kanji/Shift-JIS, ECI, FNC1 y Structured Append).
+- ✅ **Reconstrucción Reed-Solomon**: Implementación completa del decodificador RS (Síndromes, Berlekamp-Massey, Chien Search y Forney Algorithm) para corrección de errores en bloques entrelazados de QR Modelo 2.
+- ✅ **Soporte rMQR**: Decodificación completa de códigos Rectangular Micro QR (ISO/IEC 23941:2022) incluyendo lectura de información de formato rMQR, desentrelazado de bloques y decodificación de flujo de bits.
 
 ### **Anexo D**: Parámetros de Calidad de Producción
 - ✅ **Implementado**: Métricas de densidad de módulos oscuros, conteo de bloques 2×2 y recomendación de quiet zone mínima.
