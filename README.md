@@ -101,8 +101,10 @@ El archivo `config.ini` permite automatizar el comportamiento del motor. Soporta
 | `QRPS_NivelEC` | Nivel de corrección de errores: `L, M, Q, H`. | `M` |
 | `QRPS_TamanoModulo` | Tamaño de cada módulo (pixel/punto). | `10` |
 | `QRPS_ColorFront` | Color de los módulos (HEX). | `#000000` |
+| `QRPS_ColorFront2` | Segundo color para degradado (Opcional). | `""` |
 | `QRPS_ColorBack` | Color de fondo (HEX). | `#ffffff` |
 | `QRPS_Redondeado` | Nivel de redondeado de módulos (0 a 0.5). | `0` |
+| `QRPS_TipoDegradado` | Tipo de degradado (`linear` o `radial`). | `linear` |
 
 ---
 
