@@ -3802,9 +3802,9 @@ function Start-BatchProcessing {
         [string]$IniPath = ".\config.ini",
         [string]$InputFileOverride = "",
         [string]$OutputDirOverride = "",
-            [ValidateSet('QR','Micro','rMQR','AUTO')][string]$Symbol = 'AUTO',
-        [ValidateSet('M1','M2')][string]$Model = 'M2',
-        [ValidateSet('AUTO','M1','M2','M3','M4')][string]$MicroVersion = 'AUTO',
+        [string]$Symbol = "QR",
+        [int]$Model = 2,
+        [int]$MicroVersion = 0,
         [switch]$Fnc1First,
         [switch]$Fnc1Second,
         [int]$Fnc1ApplicationIndicator = 0,
@@ -3935,26 +3935,86 @@ function Start-BatchProcessing {
     
     $collectedPages = @()
     
+    $headerMap = @{}
     $firstLine = $true
     foreach ($line in $lines) {
         $trim = $line.Trim()
         if ([string]::IsNullOrWhiteSpace($trim) -or $trim.StartsWith("#")) { continue }
         
-        # Omitir encabezado si existe (Data, Line1, etc.)
-        if ($firstLine -and ($trim -match "^Data\s" -or $trim -match "^Data`t")) {
+        # Procesar columnas si hay tabs
+        $cols = $trim -split "\t"
+
+        # Detectar encabezado
+        if ($firstLine -and ($trim -match "^Data\s" -or $trim -match "^Data`t" -or $trim -match "^Dato`t")) {
+            for ($i=0; $i -lt $cols.Count; $i++) {
+                $h = $cols[$i].Trim().ToLower()
+                $headerMap[$h] = $i
+            }
             $firstLine = $false
             continue
         }
         $firstLine = $false
         
-        # Procesar columnas si hay tabs
-        $cols = $trim -split "\t"
-        $dataToEncode = if ($colIndex -lt $cols.Count) { $cols[$colIndex].Trim() } else { $cols[0].Trim() }
+        # Mapeo de datos por encabezado o por Ã­ndice
+        $getRowVal = {
+             param($key, $default)
+             if ($headerMap.ContainsKey($key.ToLower())) {
+                 $idx = $headerMap[$key.ToLower()]
+                 if ($idx -lt $cols.Count) { 
+                     $v = $cols[$idx].Trim()
+                     if ($v -eq "#" -or [string]::IsNullOrEmpty($v)) { return $default }
+                     return $v
+                 }
+             }
+             return $default
+         }
+
+        $dataToEncode = if ($headerMap.Count -gt 0) { 
+            $v = &$getRowVal "Data" ""
+            if ([string]::IsNullOrEmpty($v)) { $v = &$getRowVal "Dato" "" }
+            $v
+        } else { 
+            if ($colIndex -lt $cols.Count) { $cols[$colIndex].Trim() } else { $cols[0].Trim() }
+        }
+
+        if ([string]::IsNullOrEmpty($dataToEncode)) { continue }
+
+        # Parametros por fila (si existen en el TSV, sobreescriben los del lote)
+        $rowFg = &$getRowVal "Color" $fgColorIni
+        $rowFg2 = &$getRowVal "Color2" $fgColor2Ini
+        $rowBg = &$getRowVal "BgColor" $bgColorIni
+        $rowRounded = &$getRowVal "Rounded" $roundedIni
+        $rowFrame = &$getRowVal "Frame" $frameTextIni
+        $rowLogo = &$getRowVal "Logo" $logoPathIni
+        $rowSymbol = &$getRowVal "Symbol" $Symbol
+        $rowModel = &$getRowVal "Model" $Model
+        $rowMicroVersion = &$getRowVal "MicroVersion" $MicroVersion
         
-        # Extraer textos adicionales para debajo del QR (todas las columnas son líneas)
+        # Extraer textos adicionales para debajo del QR
         $bottomText = @()
-        foreach ($col in $cols) {
-            $bottomText += $col.Trim()
+        if ($headerMap.Count -gt 0) {
+            # Si hay cabeceras, buscamos Label1, Label2... o usamos todas si no hay labels especÃ­ficos
+            $labels = @()
+            for ($i=1; $i -le 5; $i++) {
+                $l = &$getRowVal "Label$i" ""
+                if (-not [string]::IsNullOrEmpty($l)) { $labels += $l }
+            }
+            if ($labels.Count -gt 0) {
+                $bottomText = $labels
+            } else {
+                # Fallback: todas las columnas excepto Data y configuraciones
+                foreach ($col in $cols) {
+                    $cTrim = $col.Trim()
+                    if ($cTrim -ne $dataToEncode -and $cTrim -ne $rowFg -and $cTrim -ne $rowBg) {
+                        $bottomText += $cTrim
+                    }
+                }
+            }
+        } else {
+            # Sin cabeceras: comportamiento antiguo (todas las columnas)
+            foreach ($col in $cols) {
+                $bottomText += $col.Trim()
+            }
         }
         
         # Determinar nombre base
@@ -3978,7 +4038,7 @@ function Start-BatchProcessing {
                 # Generar SVG temporal para recolectar
                 $tempSvg = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".svg")
                 try {
-                    New-QRCode -Data $dataToEncode -OutputPath $tempSvg -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $logoPathIni -LogoScale $logoScaleIni -BottomText $bottomText -ForegroundColor $fgColorIni -ForegroundColor2 $fgColor2Ini -BackgroundColor $bgColorIni -Rounded $roundedIni -GradientType $gradTypeIni -FrameText $frameTextIni -FrameColor $frameColorIni -FontFamily $fontFamilyIni -GoogleFont $googleFontIni
+                    New-QRCode -Data $dataToEncode -OutputPath $tempSvg -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal -Symbol $rowSymbol -Model $rowModel -MicroVersion $rowMicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $rowLogo -LogoScale $logoScaleIni -BottomText $bottomText -ForegroundColor $rowFg -ForegroundColor2 $rowFg2 -BackgroundColor $rowBg -Rounded $rowRounded -GradientType $gradTypeIni -FrameText $rowFrame -FrameColor $frameColorIni -FontFamily $fontFamilyIni -GoogleFont $googleFontIni
                     
                     if (Test-Path $tempSvg) {
                         $svgContent = Get-Content $tempSvg -Raw -Encoding UTF8
@@ -4010,7 +4070,7 @@ function Start-BatchProcessing {
             
             if ($PSCmdlet.ShouldProcess($finalPath, "Generar QR ($fmt)")) {
                 try {
-                    New-QRCode -Data $dataToEncode -OutputPath $finalPath -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $logoPathIni -LogoScale $logoScaleIni -BottomText $bottomText -ForegroundColor $fgColorIni -ForegroundColor2 $fgColor2Ini -BackgroundColor $bgColorIni -Rounded $roundedIni -GradientType $gradTypeIni -FrameText $frameTextIni -FrameColor $frameColorIni -FontFamily $fontFamilyIni -GoogleFont $googleFontIni
+                    New-QRCode -Data $dataToEncode -OutputPath $finalPath -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal -Symbol $rowSymbol -Model $rowModel -MicroVersion $rowMicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $rowLogo -LogoScale $logoScaleIni -BottomText $bottomText -ForegroundColor $rowFg -ForegroundColor2 $rowFg2 -BackgroundColor $rowBg -Rounded $rowRounded -GradientType $gradTypeIni -FrameText $rowFrame -FrameColor $frameColorIni -FontFamily $fontFamilyIni -GoogleFont $googleFontIni
                 } catch {
                     Write-Error "Error generando QR ($fmt) para '$dataToEncode': $_"
                 }

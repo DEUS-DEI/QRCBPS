@@ -168,16 +168,46 @@ Si prefieres no usar la línea de comandos de PowerShell, puedes usar el lanzado
 .\QRCode.ps1 -InputFile "lista.tsv" -ForegroundColor "#D40000" -Rounded 0.5 -PdfUnico
 ```
 
-### Formatos Estructurados (vCard / WiFi)
+### Formatos Estructurados (vCard / WiFi / Otros)
+
+El motor soporta diversos formatos de datos estándar para acciones automáticas al escanear:
+
+| Tipo | Formato de Datos | Descripción |
+| :--- | :--- | :--- |
+| **vCard** | `BEGIN:VCARD;VERSION:3.0;FN:Nombre;...;END:VCARD` | Tarjeta de contacto completa |
+| **WiFi** | `WIFI:S:MiRed;T:WPA;P:Clave;;` | Configuración de red inalámbrica |
+| **Email** | `MATMSG:TO:info@ej.com;SUB:Hola;BODY:Texto;;` | Preparar envío de correo |
+| **Teléfono** | `tel:+34911111222` | Iniciar llamada telefónica |
+| **SMS** | `SMSTO:+34911111222:Mensaje` | Preparar envío de SMS |
+| **Geoloc** | `geo:40.41,-3.70` | Abrir coordenadas en mapas |
+| **Calendario** | `BEGIN:VEVENT;SUMMARY:Cita;DTSTART:...;END:VEVENT` | Agregar evento al calendario |
+
 ```powershell
-# Generar una vCard (Contacto)
+# Ejemplo: Generar una vCard (Contacto)
 $contacto = New-vCard -Name "Juan Perez" -Tel "+34600000000" -Email "juan@ejemplo.com"
 .\QRCode.ps1 -Data $contacto -OutputPath "contacto.pdf"
-
-# Configuración WiFi
-$wifi = New-WiFiConfig -Ssid "MiRed" -Password "ClaveSegura" -Auth "WPA"
-.\QRCode.ps1 -Data $wifi -OutputPath "wifi.pdf"
 ```
+
+### Biblioteca de Ejemplos (Datos para Lotes)
+
+Copia y pega estos datos en un archivo de texto (ej: `mis_datos.tsv`) para procesarlos por lotes. El formato es `Dato [Tab] Tipo [Tab] Descripción`.
+
+| Dato | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `https://github.com/DEUS-DEI/qrps` | `URL` | Repositorio Oficial |
+| `WIFI:S:MiRed;T:WPA;P:Contraseña123;;` | `WIFI` | Configuración WiFi |
+| `BEGIN:VCARD;VERSION:3.0;FN:Juan Perez;TEL:+34911111222;EMAIL:juan@ejemplo.com;END:VCARD` | `VCARD` | Contacto VCF |
+| `tel:+34911111222` | `TEL` | Teléfono Soporte |
+| `SMSTO:+34911111222:Hola` | `SMS` | Mensaje SMS |
+| `geo:40.4168,-3.7038` | `GEO` | Puerta del Sol, Madrid |
+| `MATMSG:TO:soporte@ejemplo.com;SUB:Consulta;BODY:Hola;;` | `EMAIL` | Email de Soporte |
+| `BEGIN:VEVENT;SUMMARY:Reunion;DTSTART:20260124T100000Z;DTEND:20260124T110000Z;END:VEVENT` | `CALENDAR` | Evento Calendario |
+| `01012345678901281724010110ABC` | `GS1` | GS1 (GTIN + Exp + Lote) |
+| `Dato con SA` | `SA` | Structured Append (Auto-split) |
+| `Micro QR Data` | `MICRO` | Micro QR Code |
+| `Rectangular QR` | `RMQR` | rMQR (Rectangular) |
+| `漢字東京` | `KANJI` | Texto en Kanji |
+| `Datos con Ñ, á, é...` | `UTF8` | Caracteres Especiales |
 
 ### Personalización con Logos
 El motor permite incrustar logos en formato SVG o PNG. Al detectar un logo, el sistema fuerza automáticamente el nivel de error a **H (High)** para garantizar la lectura.
