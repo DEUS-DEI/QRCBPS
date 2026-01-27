@@ -49,8 +49,9 @@ El motor implementa la totalidad de los anexos técnicos del estándar:
 ### 🛠️ Características Técnicas
 - **Segmentación Inteligente**: Alterna automáticamente entre modos Numérico, Alfanumérico, Byte (UTF-8) y Kanji (Shift-JIS).
 - **Corrección de Errores (ECC)**: Implementación completa de Reed-Solomon (GF 256) niveles L, M, Q, H.
-- **Exportación PDF Nativa**: Conversión de vectores SVG a PDF utilizando Microsoft Edge (incorporado en Windows). Garantiza salida vectorial limpia, sin encabezados/pies de página y con ajuste automático al tamaño del código. Soporta la generación de un **PDF único de múltiples páginas** para procesamiento masivo.
-- **Texto Inferior Escalable**: Soporte para múltiples líneas de texto debajo del QR, con escalado automático proporcional al tamaño del módulo y centrado dinámico. Soporta fuentes personalizadas y Google Fonts.
+- **Exportación PDF Nativa (Puro PowerShell)**: Generación directa de archivos PDF binarios sin dependencias externas (sin necesidad de Microsoft Edge para funciones core). Soporta vectores limpios para módulos (cuadrados o redondeados), marcos decorativos y múltiples líneas de texto con soporte total para caracteres especiales (ñ, á, é, etc.).
+- **Fallback Inteligente**: Solo utiliza Microsoft Edge como motor de renderizado cuando se requieren funciones ultra-complejas como la incrustación de logos SVG externos o degradados de color avanzados, manteniendo la portabilidad máxima en el resto de los casos.
+- **Texto Inferior y Etiquetas**: Soporte para múltiples líneas de texto debajo del QR. En procesamiento por lotes, detecta automáticamente columnas `Label1` a `Label5` y soporta el carácter `\n` para saltos de línea manuales con centrado dinámico e independiente por línea.
 - **Marcos Decorativos (Frames)**: Capacidad de añadir un marco sólido con texto personalizado (ej: "ESCANEAME") en la parte superior, ideal para llamadas a la acción.
 - **Personalización Estética**: Soporte para colores sólidos, degradados (lineales y radiales), módulos redondeados y máscaras automáticas para logos.
 - **Procesamiento Multi-formato**: Permite generar simultáneamente SVG, PDF y PNG en un solo proceso por lotes.
@@ -65,7 +66,7 @@ El motor implementa la totalidad de los anexos técnicos del estándar:
 | Formato | Estado | Tipo | Recomendación |
 | :--- | :---: | :--- | :--- |
 | **SVG** | ✅ | Vectorial | **Ideal**. Calidad infinita, menor peso, basado en texto. |
-| **PDF** | ✅ | Vectorial | **Estándar Impresión**. Generado nativamente vía Microsoft Edge. |
+| **PDF** | ✅ | Vectorial | **Estándar Impresión**. Generado 100% nativo (binario) para funciones core. |
 | **PNG** | ✅ | Raster | **Estándar**. Sin pérdida (Lossless), compatible con todo. |
 | **BMP** | 🟡 | Raster | **Raw**. Representación directa de memoria, sin compresión. |
 | **JPEG** | ❌ | Raster | **No recomendado**. El ruido de compresión daña la lectura. |
@@ -129,6 +130,21 @@ Si prefieres no usar la línea de comandos de PowerShell, puedes usar el lanzado
   1. Procesamiento por lotes (usando `config.ini`).
   2. Generación rápida (texto manual + opción de logo).
   3. Decodificación de archivos.
+
+### Procesamiento por Lotes Avanzado (TSV)
+
+El motor procesa archivos TSV (separados por tabuladores) permitiendo una personalización total por cada fila. Puedes incluir las siguientes columnas opcionales:
+
+| Columna | Descripción | Ejemplo |
+| :--- | :--- | :--- |
+| `Data` | El contenido que se codificará en el QR (URL, texto, etc.). | `https://google.com` |
+| `Frame` | Texto para el marco decorativo superior. | `ESCANEAME` |
+| `FrameColor` | Color hexadecimal para el marco. | `#FF0000` |
+| `Rounded` | Nivel de redondeado de los módulos (0 a 1). | `0.5` |
+| `ForegroundColor` | Color de los módulos del QR. | `#0000FF` |
+| `Label1` ... `Label5` | Líneas de texto adicionales debajo del QR. | `Página 1`, `Línea 2` |
+
+*Nota: También puedes usar `\n` dentro de cualquier celda de texto para forzar saltos de línea adicionales.*
 
 ### Generación vía PowerShell
 ```powershell
