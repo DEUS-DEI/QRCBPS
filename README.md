@@ -81,11 +81,41 @@ El motor `qrps` ha sido diseñado para ser **libre de regalías** y cumplir con 
 
 ---
 
+## ⚙️ Configuración Avanzada (config.ini)
+
+El archivo `config.ini` permite automatizar el comportamiento del motor. Soporta múltiples listas de entrada y personalización estética:
+
+| Variable | Descripción | Valor por Defecto |
+| :--- | :--- | :--- |
+| `QRPS_ArchivoEntrada` | Lista(s) de entrada (.tsv). Separadas por coma habilitan menú. | `lista_inputs.tsv` |
+| `QRPS_FormatoSalida` | Formato de imagen: `svg` (vectorial) o `png` (raster). | `svg` |
+| `QRPS_LogoPath` | Ruta al logo (SVG/PNG) para incrustar en el centro. | (Vacío) |
+| `QRPS_LogoScale` | Porcentaje del tamaño del logo respecto al QR. | `20` |
+| `QRPS_MenuTimeout` | Segundos de espera en el menú de selección de listas. | `5` |
+| `QRPS_IndiceColumna` | Columna del archivo TSV que contiene el dato a codificar. | `1` |
+| `QRPS_NivelEC` | Nivel de corrección de errores: `L, M, Q, H`. | `M` |
+| `QRPS_TamanoModulo` | Tamaño de cada módulo (pixel/punto). | `10` |
+
+---
+
 ## 🚀 Guía de Inicio Rápido
 
-### Generación Simple
+### Lanzador Fácil (Recomendado)
+Si prefieres no usar la línea de comandos de PowerShell, puedes usar el lanzador interactivo:
+- Ejecuta **[run_qrps.bat](file:///c:/Users/kgrb/Documents/GitHUb/qrps/run_qrps.bat)** para acceder al menú simplificado:
+  1. Procesamiento por lotes (usando `config.ini`).
+  2. Generación rápida (texto manual + opción de logo).
+  3. Decodificación de archivos.
+
+### Generación vía PowerShell
 ```powershell
-.\QRCode.ps1 -Data "Hola Mundo" -OutputPath "codigo.png"
+.\QRCode.ps1 -Data "Hola Mundo" -OutputPath "codigo.svg"
+```
+
+### Personalización con Logos
+El motor permite incrustar logos en formato SVG o PNG. Al detectar un logo, el sistema fuerza automáticamente el nivel de error a **H (High)** para garantizar la lectura.
+```powershell
+.\QRCode.ps1 -Data "Dato con Logo" -LogoPath ".\Docs\logo.svg" -LogoScale 20 -OutputPath "qr_logo.svg"
 ```
 
 ### rMQR (Rectangular)

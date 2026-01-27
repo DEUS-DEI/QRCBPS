@@ -33,7 +33,9 @@ param(
     [string]$StructuredAppendParityData = "",
     [switch]$ShowConsole,
     [switch]$Decode,
-    [switch]$QualityReport
+    [switch]$QualityReport,
+    [string]$LogoPath = "",
+    [int]$LogoScale = 20
 )
 
 # GF(256) lookup tables
@@ -2266,7 +2268,9 @@ function ExportSvg {
         $m,
         $path,
         $scale,
-        $quiet
+        $quiet,
+        [string]$logoPath = "",
+        [int]$logoScale = 20
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar SVG")) { return }
     $size = $m.Size
@@ -2276,7 +2280,7 @@ function ExportSvg {
     $heightPx = $hUnits * $scale
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
-    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" width=""$widthPx"" height=""$heightPx"" viewBox=""0 0 $wUnits $hUnits"" shape-rendering=""crispEdges"">")
+    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$widthPx"" height=""$heightPx"" viewBox=""0 0 $wUnits $hUnits"" shape-rendering=""crispEdges"">")
     [void]$sb.Append("<rect width=""$wUnits"" height=""$hUnits"" fill=""#ffffff""/>")
     [void]$sb.Append("<g fill=""#000000"">")
     for ($r = 0; $r -lt $m.Size; $r++) {
@@ -2288,7 +2292,35 @@ function ExportSvg {
             }
         }
     }
-    [void]$sb.Append("</g></svg>")
+    [void]$sb.Append("</g>")
+
+    # Insertar Logo si existe
+    if (-not [string]::IsNullOrEmpty($logoPath) -and (Test-Path $logoPath)) {
+        $logoExt = [System.IO.Path]::GetExtension($logoPath).ToLower()
+        $lSize = ($wUnits * $logoScale) / 100
+        $lPos = ($wUnits - $lSize) / 2
+        
+        if ($logoExt -eq ".svg") {
+            try {
+                [xml]$logoSvg = Get-Content $logoPath
+                # Extraer contenido interno (remover tags svg/xml)
+                $inner = $logoSvg.DocumentElement.InnerXml
+                [void]$sb.Append("<g transform=""translate($lPos, $lPos) scale($($lSize / $wUnits))"">$inner</g>")
+            } catch {
+                Write-Warning "No se pudo procesar el logo SVG: $_"
+            }
+        } elseif ($logoExt -eq ".png") {
+            try {
+                $bytes = [System.IO.File]::ReadAllBytes($logoPath)
+                $b64 = [System.Convert]::ToBase64String($bytes)
+                [void]$sb.Append("<image x=""$lPos"" y=""$lPos"" width=""$lSize"" height=""$lSize"" xlink:href=""data:image/png;base64,$b64"" />")
+            } catch {
+                Write-Warning "No se pudo procesar el logo PNG: $_"
+            }
+        }
+    }
+
+    [void]$sb.Append("</svg>")
     Set-Content -Path $path -Value $sb.ToString() -Encoding UTF8
 }
 
@@ -2298,7 +2330,9 @@ function ExportSvgRect {
         $m,
         $path,
         $scale,
-        $quiet
+        $quiet,
+        [string]$logoPath = "",
+        [int]$logoScale = 20
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar SVG")) { return }
     $wUnits = $m.Width + ($quiet * 2)
@@ -2307,7 +2341,7 @@ function ExportSvgRect {
     $heightPx = $hUnits * $scale
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
-    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" width=""$widthPx"" height=""$heightPx"" viewBox=""0 0 $wUnits $hUnits"" shape-rendering=""crispEdges"">")
+    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$widthPx"" height=""$heightPx"" viewBox=""0 0 $wUnits $hUnits"" shape-rendering=""crispEdges"">")
     [void]$sb.Append("<rect width=""$wUnits"" height=""$hUnits"" fill=""#ffffff""/>")
     [void]$sb.Append("<g fill=""#000000"">")
     for ($r = 0; $r -lt $m.Height; $r++) {
@@ -2319,7 +2353,37 @@ function ExportSvgRect {
             }
         }
     }
-    [void]$sb.Append("</g></svg>")
+    [void]$sb.Append("</g>")
+
+    # Insertar Logo si existe
+    if (-not [string]::IsNullOrEmpty($logoPath) -and (Test-Path $logoPath)) {
+        $logoExt = [System.IO.Path]::GetExtension($logoPath).ToLower()
+        # Para rMQR escalamos según el lado menor
+        $minSide = if ($wUnits -lt $hUnits) { $wUnits } else { $hUnits }
+        $lSize = ($minSide * $logoScale) / 100
+        $lx = ($wUnits - $lSize) / 2
+        $ly = ($hUnits - $lSize) / 2
+
+        if ($logoExt -eq ".svg") {
+            try {
+                [xml]$logoSvg = Get-Content $logoPath
+                $inner = $logoSvg.DocumentElement.InnerXml
+                [void]$sb.Append("<g transform=""translate($lx, $ly) scale($($lSize / $minSide))"">$inner</g>")
+            } catch {
+                Write-Warning "No se pudo procesar el logo SVG: $_"
+            }
+        } elseif ($logoExt -eq ".png") {
+            try {
+                $bytes = [System.IO.File]::ReadAllBytes($logoPath)
+                $b64 = [System.Convert]::ToBase64String($bytes)
+                [void]$sb.Append("<image x=""$lx"" y=""$ly"" width=""$lSize"" height=""$lSize"" xlink:href=""data:image/png;base64,$b64"" />")
+            } catch {
+                Write-Warning "No se pudo procesar el logo PNG: $_"
+            }
+        }
+    }
+
+    [void]$sb.Append("</svg>")
     Set-Content -Path $path -Value $sb.ToString() -Encoding UTF8
 }
 
@@ -2377,9 +2441,17 @@ function New-QRCode {
         [string]$StructuredAppendParityData = "",
     [switch]$ShowConsole,
     [switch]$Decode,
-    [switch]$QualityReport
+    [switch]$QualityReport,
+    [string]$LogoPath = "",
+    [int]$LogoScale = 20
     )
     
+    # Si hay logo, forzamos EC Level H para asegurar lectura
+    if (-not [string]::IsNullOrEmpty($LogoPath)) {
+        $ECLevel = 'H'
+        Write-Status "[INFO] Logo detectado. Forzando Nivel de Error H (High) para asegurar legibilidad."
+    }
+
     $sw = [Diagnostics.Stopwatch]::StartNew()
     
     if ($Symbol -eq 'AUTO') {
@@ -2931,10 +3003,10 @@ function New-QRCode {
         $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
         if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
             if ($isSvg) {
-                ExportSvg $final $OutputPath $ModuleSize 4
-            } else {
-                ExportPng $final $OutputPath $ModuleSize 4
-            }
+            ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale
+        } else {
+            ExportPng $final $OutputPath $ModuleSize 4
+        }
         }
         Write-Status "Guardado: $OutputPath"
     }
@@ -3092,6 +3164,15 @@ function Start-BatchProcessing {
     $useTs = (Get-IniValue $iniContent "QRPS" "QRPS_IncluirTimestamp" "no") -eq "si"
     $tsFormat = Get-IniValue $iniContent "QRPS" "QRPS_FormatoFecha" "yyyyMMdd_HHmmss"
     $eciVal = [int](Get-IniValue $iniContent "QRPS" "QRPS_ECI" "0")
+    $logoPathIni = Get-IniValue $iniContent "QRPS" "QRPS_LogoPath" ""
+    $logoScaleIni = [int](Get-IniValue $iniContent "QRPS" "QRPS_LogoScale" "20")
+    
+    # Si hay logo en config, forzamos EC Level H
+    if (-not [string]::IsNullOrEmpty($logoPathIni)) {
+        $ecLevel = 'H'
+        Write-Status "[INFO] Logo configurado en config.ini. Usando Nivel de Error H (High)."
+    }
+
     $colIndex = [int](Get-IniValue $iniContent "QRPS" "QRPS_IndiceColumna" "1") - 1
     if ($colIndex -lt 0) { $colIndex = 0 }
     
@@ -3144,7 +3225,7 @@ function Start-BatchProcessing {
         
         if ($PSCmdlet.ShouldProcess($finalPath, "Generar QR")) {
             try {
-                New-QRCode -Data $dataToEncode -OutputPath $finalPath -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData
+                New-QRCode -Data $dataToEncode -OutputPath $finalPath -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $logoPathIni -LogoScale $logoScaleIni
             } catch {
                 Write-Error "Error generando QR para '$dataToEncode': $_"
             }
@@ -3195,7 +3276,7 @@ if ($Decode -and -not [string]::IsNullOrEmpty($InputPath)) {
     }
 } elseif (-not [string]::IsNullOrEmpty($Data)) {
     # Modo CLI Directo (Un solo QR)
-    New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole -Decode:$Decode -QualityReport:$QualityReport
+    New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole -Decode:$Decode -QualityReport:$QualityReport -LogoPath $LogoPath -LogoScale $LogoScale
 } else {
     # Modo Batch (Por Archivo o Config)
     if (-not [string]::IsNullOrEmpty($InputFile) -or (Test-Path $IniPath)) {
