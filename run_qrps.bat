@@ -40,7 +40,7 @@ if "%choice%"=="1" (
 if "%choice%"=="2" (
     echo.
     set /p qrdata="Ingresa el texto o URL para el QR: "
-    set /p qrname="Ingresa el nombre del archivo (ej: mi_codigo.svg): "
+    set /p qrname="Ingresa el nombre del archivo (ej: mi_codigo.pdf): "
     set /p qrlogo="Ingresa la ruta del logo (SVG/PNG) o presiona Enter para omitir: "
     set /p qrscale="Ingresa la escala del logo (1-30, default 20) o presiona Enter: "
     if "!qrscale!"=="" set qrscale=20

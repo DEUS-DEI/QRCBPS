@@ -49,6 +49,7 @@ El motor implementa la totalidad de los anexos técnicos del estándar:
 ### 🛠️ Características Técnicas
 - **Segmentación Inteligente**: Alterna automáticamente entre modos Numérico, Alfanumérico, Byte (UTF-8) y Kanji (Shift-JIS).
 - **Corrección de Errores (ECC)**: Implementación completa de Reed-Solomon (GF 256) niveles L, M, Q, H.
+- **Exportación PDF Nativa**: Conversión de vectores SVG a PDF utilizando Microsoft Edge (incorporado en Windows), garantizando salida vectorial sin dependencias de terceros o software de pago.
 - **Decodificación de Referencia**: Capacidad de leer y verificar códigos generados (PNG/SVG).
 - **Reporte de Calidad**: Métricas de densidad, bloques 2x2 y cumplimiento de Quiet Zone.
 
@@ -59,6 +60,7 @@ El motor implementa la totalidad de los anexos técnicos del estándar:
 | Formato | Estado | Tipo | Recomendación |
 | :--- | :---: | :--- | :--- |
 | **SVG** | ✅ | Vectorial | **Ideal**. Calidad infinita, menor peso, basado en texto. |
+| **PDF** | ✅ | Vectorial | **Estándar Impresión**. Generado nativamente vía Microsoft Edge. |
 | **PNG** | ✅ | Raster | **Estándar**. Sin pérdida (Lossless), compatible con todo. |
 | **BMP** | 🟡 | Raster | **Raw**. Representación directa de memoria, sin compresión. |
 | **JPEG** | ❌ | Raster | **No recomendado**. El ruido de compresión daña la lectura. |

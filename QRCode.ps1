@@ -2403,6 +2403,88 @@ function ExportSvg {
     Set-Content -Path $path -Value $sb.ToString() -Encoding UTF8
 }
 
+function ExportPdf {
+    param(
+        $m,
+        $path,
+        $scale,
+        $quiet,
+        [string]$logoPath = "",
+        [int]$logoScale = 20
+    )
+    # Generar contenido SVG
+    $tempSvg = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".svg")
+    $tempHtml = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".html")
+    
+    # Detectar si es un QR rectangular o cuadrado
+    if ($null -ne $m.Width) {
+        ExportSvgRect -m $m -path $tempSvg -scale $scale -quiet $quiet -logoPath $logoPath -logoScale $logoScale
+    } else {
+        ExportSvg -m $m -path $tempSvg -scale $scale -quiet $quiet -logoPath $logoPath -logoScale $logoScale
+    }
+
+    $svgContent = Get-Content $tempSvg -Raw
+    
+    # Crear un HTML temporal que envuelva el SVG con CSS para eliminar márgenes y cabeceras
+    # @page { margin: 0; } es la clave para quitar la fecha y ruta
+    $htmlContent = @"
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    @page { margin: 0; size: auto; }
+    body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: white; }
+    svg { width: 90vw; height: 90vh; }
+</style>
+</head>
+<body>
+    $svgContent
+</body>
+</html>
+"@
+    Set-Content -Path $tempHtml -Value $htmlContent -Encoding UTF8
+
+    try {
+        $edgePaths = @(
+            "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+            "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe"
+        )
+        $edgePath = $edgePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+        if ($edgePath) {
+            $absPath = [System.IO.Path]::GetFullPath($path)
+            $absTempHtml = [System.IO.Path]::GetFullPath($tempHtml)
+
+            $args = @(
+                "--headless",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--print-to-pdf-no-header",
+                "--no-pdf-header-footer",
+                "--print-to-pdf=""$absPath""",
+                """$absTempHtml"""
+            )
+            Start-Process -FilePath $edgePath -ArgumentList $args -Wait -WindowStyle Hidden
+            
+            if (Test-Path $absPath) {
+                Write-Status "[OK] PDF limpio (sin encabezados) generado exitosamente en: $path"
+            } else {
+                throw "Edge no pudo generar el archivo PDF."
+            }
+        } else {
+            throw "No se encontró Microsoft Edge para la conversión."
+        }
+    } catch {
+        Write-Warning "No se pudo convertir a PDF: $_. Usando respaldo."
+        if (Test-Path $tempSvg) {
+            Move-Item -Path $tempSvg -Destination $path -Force
+        }
+    } finally {
+        if (Test-Path $tempSvg) { Remove-Item $tempSvg -ErrorAction SilentlyContinue }
+        if (Test-Path $tempHtml) { Remove-Item $tempHtml -ErrorAction SilentlyContinue }
+    }
+}
+
 function ExportSvgRect {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -2926,16 +3008,16 @@ function New-QRCode {
         }
     }
         if ($OutputPath) {
-            $isSvg = $OutputPath.ToLower().EndsWith(".svg")
-            $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
-            if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
-                if ($isSvg) {
-                    ExportSvgRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale
-                } else {
-                    ExportPngRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale
-                }
+        $ext = [System.IO.Path]::GetExtension($OutputPath).ToLower()
+        $label = "Exportar $ext"
+        if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
+            switch ($ext) {
+                ".svg" { ExportSvgRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale }
+                ".pdf" { ExportPdf $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale }
+                default { ExportPngRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale }
             }
         }
+    }
         return $m
     }
     
@@ -3109,14 +3191,14 @@ function New-QRCode {
         Write-Status "Decodificado: $cleanText"
     }
     if ($OutputPath) {
-        $isSvg = $OutputPath.ToLower().EndsWith(".svg")
-        $label = if ($isSvg) { "Exportar SVG" } else { "Exportar PNG" }
+        $ext = [System.IO.Path]::GetExtension($OutputPath).ToLower()
+        $label = "Exportar $ext"
         if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
-            if ($isSvg) {
-            ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale
-        } else {
-            ExportPng $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale
-        }
+            switch ($ext) {
+                ".svg" { ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale }
+                ".pdf" { ExportPdf $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale }
+                default { ExportPng $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale }
+            }
         }
         Write-Status "Guardado: $OutputPath"
     }

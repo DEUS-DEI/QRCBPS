@@ -7,7 +7,7 @@ salida_qr/
 *.jpeg
 *.bmp
 *.svg
-
+*.pdf
 # Archivos temporales de sistema
 Thumbs.db
 Desktop.ini
