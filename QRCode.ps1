@@ -2208,7 +2208,9 @@ function ExportPng {
         $scale,
         $quiet,
         [string]$logoPath = "",
-        [int]$logoScale = 20
+        [int]$logoScale = 20,
+        [string]$foregroundColor = "#000000",
+        [string]$backgroundColor = "#ffffff"
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
     Add-Type -AssemblyName System.Drawing
@@ -2216,16 +2218,19 @@ function ExportPng {
     $imgSize = ($m.Size + $quiet * 2) * $scale
     $bmp = New-Object Drawing.Bitmap $imgSize, $imgSize
     $g = [Drawing.Graphics]::FromImage($bmp)
-    $g.Clear([Drawing.Color]::White)
     
-    $black = [Drawing.Brushes]::Black
+    $fgColor = [Drawing.ColorTranslator]::FromHtml($foregroundColor)
+    $bgColor = [Drawing.ColorTranslator]::FromHtml($backgroundColor)
+    
+    $g.Clear($bgColor)
+    $fgBrush = New-Object Drawing.SolidBrush($fgColor)
     
     for ($r = 0; $r -lt $m.Size; $r++) {
         for ($c = 0; $c -lt $m.Size; $c++) {
             if ((GetM $m $r $c) -eq 1) {
                 $x = ($c + $quiet) * $scale
                 $y = ($r + $quiet) * $scale
-                $g.FillRectangle($black, $x, $y, $scale, $scale)
+                $g.FillRectangle($fgBrush, $x, $y, $scale, $scale)
             }
         }
     }
@@ -2239,8 +2244,8 @@ function ExportPng {
                 $lSize = ($imgSize * $logoScale) / 100
                 $lPos = ($imgSize - $lSize) / 2
                 
-                # Fondo blanco detrás del logo
-                $g.FillRectangle([Drawing.Brushes]::White, $lPos, $lPos, $lSize, $lSize)
+                # Fondo blanco detrás del logo (Podría ser el fondo del QR si se prefiere)
+                $g.FillRectangle(New-Object Drawing.SolidBrush($bgColor), $lPos, $lPos, $lSize, $lSize)
                 
                 $g.DrawImage($logoBmp, $lPos, $lPos, $lSize, $lSize)
                 $logoBmp.Dispose()
@@ -2252,6 +2257,7 @@ function ExportPng {
         }
     }
     
+    $fgBrush.Dispose()
     $g.Dispose()
     $bmp.Save($path, [Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
@@ -2265,7 +2271,9 @@ function ExportPngRect {
         $scale,
         $quiet,
         [string]$logoPath = "",
-        [int]$logoScale = 20
+        [int]$logoScale = 20,
+        [string]$foregroundColor = "#000000",
+        [string]$backgroundColor = "#ffffff"
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
     Add-Type -AssemblyName System.Drawing
@@ -2273,14 +2281,19 @@ function ExportPngRect {
     $imgH = ($m.Height + $quiet * 2) * $scale
     $bmp = New-Object Drawing.Bitmap $imgW, $imgH
     $g = [Drawing.Graphics]::FromImage($bmp)
-    $g.Clear([Drawing.Color]::White)
-    $black = [Drawing.Brushes]::Black
+    
+    $fgColor = [Drawing.ColorTranslator]::FromHtml($foregroundColor)
+    $bgColor = [Drawing.ColorTranslator]::FromHtml($backgroundColor)
+    
+    $g.Clear($bgColor)
+    $fgBrush = New-Object Drawing.SolidBrush($fgColor)
+    
     for ($r = 0; $r -lt $m.Height; $r++) {
         for ($c = 0; $c -lt $m.Width; $c++) {
             if ($m.Mod["$r,$c"] -eq 1) {
                 $x = ($c + $quiet) * $scale
                 $y = ($r + $quiet) * $scale
-                $g.FillRectangle($black, $x, $y, $scale, $scale)
+                $g.FillRectangle($fgBrush, $x, $y, $scale, $scale)
             }
         }
     }
@@ -2297,7 +2310,7 @@ function ExportPngRect {
                 $ly = ($imgH - $lSize) / 2
                 
                 # Fondo blanco detrás del logo
-                $g.FillRectangle([Drawing.Brushes]::White, $lx, $ly, $lSize, $lSize)
+                $g.FillRectangle(New-Object Drawing.SolidBrush($bgColor), $lx, $ly, $lSize, $lSize)
                 
                 $g.DrawImage($logoBmp, $lx, $ly, $lSize, $lSize)
                 $logoBmp.Dispose()
@@ -2309,6 +2322,7 @@ function ExportPngRect {
         }
     }
 
+    $fgBrush.Dispose()
     $g.Dispose()
     $bmp.Save($path, [Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
@@ -2323,7 +2337,10 @@ function ExportSvg {
         $quiet,
         [string]$logoPath = "",
         [int]$logoScale = 20,
-        [string[]]$bottomText = @()
+        [string[]]$bottomText = @(),
+        [string]$foregroundColor = "#000000",
+        [string]$backgroundColor = "#ffffff",
+        [double]$rounded = 0
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar SVG")) { return }
     $size = $m.Size
@@ -2343,14 +2360,17 @@ function ExportSvg {
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
     [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$widthPx"" height=""$heightPx"" viewBox=""0 0 $wUnits $hUnits"" shape-rendering=""crispEdges"">")
-    [void]$sb.Append("<rect width=""$wUnits"" height=""$hUnits"" fill=""#ffffff""/>")
-    [void]$sb.Append("<g fill=""#000000"">")
+    [void]$sb.Append("<rect width=""$wUnits"" height=""$hUnits"" fill=""$backgroundColor""/>")
+    [void]$sb.Append("<g fill=""$foregroundColor"">")
+    
+    $rectAttr = if ($rounded -gt 0) { " rx=""$rounded"" ry=""$rounded""" } else { "" }
+    
     for ($r = 0; $r -lt $m.Size; $r++) {
         for ($c = 0; $c -lt $m.Size; $c++) {
             if ((GetM $m $r $c) -eq 1) {
                 $x = $c + $quiet
                 $y = $r + $quiet
-                [void]$sb.Append("<rect x=""$x"" y=""$y"" width=""1"" height=""1""/>")
+                [void]$sb.Append("<rect x=""$x"" y=""$y"" width=""1"" height=""1""$rectAttr/>")
             }
         }
     }
@@ -2363,7 +2383,7 @@ function ExportSvg {
         foreach ($line in $bottomText) {
             $escapedText = [System.Security.SecurityElement]::Escape($line)
             # Centrar texto: x = wUnits / 2
-            [void]$sb.Append("<text x=""$($wUnits/2)"" y=""$($currentY + $textPadding + $fontSize)"" font-family=""Arial, sans-serif"" font-size=""$fontSize"" text-anchor=""middle"" fill=""#000000"">$escapedText</text>")
+            [void]$sb.Append("<text x=""$($wUnits/2)"" y=""$($currentY + $textPadding + $fontSize)"" font-family=""Arial, sans-serif"" font-size=""$fontSize"" text-anchor=""middle"" fill=""$foregroundColor"">$escapedText</text>")
             $currentY += $lineHeight
         }
     }
@@ -2434,7 +2454,10 @@ function ExportPdf {
         $quiet,
         [string]$logoPath = "",
         [int]$logoScale = 20,
-        [string[]]$bottomText = @()
+        [string[]]$bottomText = @(),
+        [string]$foregroundColor = "#000000",
+        [string]$backgroundColor = "#ffffff",
+        [double]$rounded = 0
     )
     # Generar contenido SVG
     $tempSvg = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".svg")
@@ -2442,11 +2465,11 @@ function ExportPdf {
     
     # Detectar si es un QR rectangular o cuadrado para obtener dimensiones
     if ($null -ne $m.Width) {
-        ExportSvgRect -m $m -path $tempSvg -scale $scale -quiet $quiet -logoPath $logoPath -logoScale $logoScale -bottomText $bottomText
+        ExportSvgRect -m $m -path $tempSvg -scale $scale -quiet $quiet -logoPath $logoPath -logoScale $logoScale -bottomText $bottomText -foregroundColor $foregroundColor -backgroundColor $backgroundColor -rounded $rounded
         $wUnits = $m.Width + ($quiet * 2)
         $hUnits_qr = $m.Height + ($quiet * 2)
     } else {
-        ExportSvg -m $m -path $tempSvg -scale $scale -quiet $quiet -logoPath $logoPath -logoScale $logoScale -bottomText $bottomText
+        ExportSvg -m $m -path $tempSvg -scale $scale -quiet $quiet -logoPath $logoPath -logoScale $logoScale -bottomText $bottomText -foregroundColor $foregroundColor -backgroundColor $backgroundColor -rounded $rounded
         $wUnits = $m.Size + ($quiet * 2)
         $hUnits_qr = $wUnits
     }
@@ -2547,7 +2570,10 @@ function ExportSvgRect {
         $quiet,
         [string]$logoPath = "",
         [int]$logoScale = 20,
-        [string[]]$bottomText = @()
+        [string[]]$bottomText = @(),
+        [string]$foregroundColor = "#000000",
+        [string]$backgroundColor = "#ffffff",
+        [double]$rounded = 0
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar SVG")) { return }
     $wUnits = $m.Width + ($quiet * 2)
@@ -2566,14 +2592,17 @@ function ExportSvgRect {
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
     [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$widthPx"" height=""$heightPx"" viewBox=""0 0 $wUnits $hUnits"" shape-rendering=""crispEdges"">")
-    [void]$sb.Append("<rect width=""$wUnits"" height=""$hUnits"" fill=""#ffffff""/>")
-    [void]$sb.Append("<g fill=""#000000"">")
+    [void]$sb.Append("<rect width=""$wUnits"" height=""$hUnits"" fill=""$backgroundColor""/>")
+    [void]$sb.Append("<g fill=""$foregroundColor"">")
+    
+    $rectAttr = if ($rounded -gt 0) { " rx=""$rounded"" ry=""$rounded""" } else { "" }
+    
     for ($r = 0; $r -lt $m.Height; $r++) {
         for ($c = 0; $c -lt $m.Width; $c++) {
             if ($m.Mod["$r,$c"] -eq 1) {
                 $x = $c + $quiet
                 $y = $r + $quiet
-                [void]$sb.Append("<rect x=""$x"" y=""$y"" width=""1"" height=""1""/>")
+                [void]$sb.Append("<rect x=""$x"" y=""$y"" width=""1"" height=""1""$rectAttr/>")
             }
         }
     }
@@ -2586,7 +2615,7 @@ function ExportSvgRect {
         foreach ($line in $bottomText) {
             $escapedText = [System.Security.SecurityElement]::Escape($line)
             # Centrar texto: x = wUnits / 2
-            [void]$sb.Append("<text x=""$($wUnits/2)"" y=""$($currentY + $textPadding + $fontSize)"" font-family=""Arial, sans-serif"" font-size=""$fontSize"" text-anchor=""middle"" fill=""#000000"">$escapedText</text>")
+            [void]$sb.Append("<text x=""$($wUnits/2)"" y=""$($currentY + $textPadding + $fontSize)"" font-family=""Arial, sans-serif"" font-size=""$fontSize"" text-anchor=""middle"" fill=""$foregroundColor"">$escapedText</text>")
             $currentY += $lineHeight
         }
     }
@@ -2685,6 +2714,42 @@ function ShowConsole($m) {
     Write-Output ""
 }
 
+# --- HELPERS PARA FORMATOS ESTRUCTURADOS ---
+
+function New-vCard {
+    param(
+        [string]$Name,
+        [string]$Org,
+        [string]$Tel,
+        [string]$Email,
+        [string]$Url,
+        [string]$Note
+    )
+    $vc = "BEGIN:VCARD`r`nVERSION:3.0`r`n"
+    if ($Name) { $vc += "N:$Name`r`nFN:$Name`r`n" }
+    if ($Org)  { $vc += "ORG:$Org`r`n" }
+    if ($Tel)  { $vc += "TEL:$Tel`r`n" }
+    if ($Email){ $vc += "EMAIL:$Email`r`n" }
+    if ($Url)  { $vc += "URL:$Url`r`n" }
+    if ($Note) { $vc += "NOTE:$Note`r`n" }
+    $vc += "END:VCARD"
+    return $vc
+}
+
+function New-WiFiConfig {
+    param(
+        [string]$Ssid,
+        [string]$Password,
+        [ValidateSet('WEP','WPA','nopass')][string]$Auth = 'WPA',
+        [switch]$Hidden
+    )
+    # Formato: WIFI:S:SSID;T:WPA;P:password;H:true;;
+    $wifi = "WIFI:S:$Ssid;T:$Auth;P:$Password;"
+    if ($Hidden) { $wifi += "H:true;" }
+    $wifi += ";"
+    return $wifi
+}
+
 function New-QRCode {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -2709,7 +2774,10 @@ function New-QRCode {
     [switch]$QualityReport,
     [string]$LogoPath = "",
     [int]$LogoScale = 20,
-    [string[]]$BottomText = @()
+    [string[]]$BottomText = @(),
+    [string]$ForegroundColor = "#000000",
+    [string]$BackgroundColor = "#ffffff",
+    [double]$Rounded = 0
     )
     
     # Si hay logo, forzamos EC Level H para asegurar lectura
@@ -3271,9 +3339,9 @@ function New-QRCode {
         $label = "Exportar $ext"
         if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
             switch ($ext) {
-                ".svg" { ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText }
-                ".pdf" { ExportPdf $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText }
-                default { ExportPng $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale }
+                ".svg" { ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $BackgroundColor $Rounded }
+                ".pdf" { ExportPdf $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $BackgroundColor $Rounded }
+                default { ExportPng $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor }
             }
         }
         Write-Status "Guardado: $OutputPath"
@@ -3434,6 +3502,9 @@ function Start-BatchProcessing {
     $eciVal = [int](Get-IniValue $iniContent "QRPS" "QRPS_ECI" "0")
     $logoPathIni = Get-IniValue $iniContent "QRPS" "QRPS_LogoPath" ""
     $logoScaleIni = [int](Get-IniValue $iniContent "QRPS" "QRPS_LogoScale" "20")
+    $fgColorIni = Get-IniValue $iniContent "QRPS" "QRPS_ColorFront" "#000000"
+    $bgColorIni = Get-IniValue $iniContent "QRPS" "QRPS_ColorBack" "#ffffff"
+    $roundedIni = [double](Get-IniValue $iniContent "QRPS" "QRPS_Redondeado" "0")
     
     # Si hay logo en config, forzamos EC Level H
     if (-not [string]::IsNullOrEmpty($logoPathIni)) {
@@ -3503,7 +3574,7 @@ function Start-BatchProcessing {
         
         if ($PSCmdlet.ShouldProcess($finalPath, "Generar QR")) {
             try {
-                New-QRCode -Data $dataToEncode -OutputPath $finalPath -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $logoPathIni -LogoScale $logoScaleIni -BottomText $bottomText
+                New-QRCode -Data $dataToEncode -OutputPath $finalPath -ECLevel $ecLevel -Version $version -ModuleSize $modSize -EciValue $eciVal -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $logoPathIni -LogoScale $logoScaleIni -BottomText $bottomText -ForegroundColor $fgColorIni -BackgroundColor $bgColorIni -Rounded $roundedIni
             } catch {
                 Write-Error "Error generando QR para '$dataToEncode': $_"
             }

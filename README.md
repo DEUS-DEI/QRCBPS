@@ -51,6 +51,8 @@ El motor implementa la totalidad de los anexos técnicos del estándar:
 - **Corrección de Errores (ECC)**: Implementación completa de Reed-Solomon (GF 256) niveles L, M, Q, H.
 - **Exportación PDF Nativa**: Conversión de vectores SVG a PDF utilizando Microsoft Edge (incorporado en Windows). Garantiza salida vectorial limpia, sin encabezados/pies de página y con ajuste automático al tamaño del código.
 - **Texto Inferior Escalable**: Soporte para múltiples líneas de texto debajo del QR, con escalado automático proporcional al tamaño del módulo y centrado dinámico.
+- **Personalización Estética**: Soporte para colores personalizados (Primer plano y fondo) y módulos con esquinas redondeadas para un aspecto más moderno.
+- **Formatos Estructurados**: Funciones integradas para generar tarjetas de contacto (vCard) y configuraciones de WiFi.
 - **Decodificación de Referencia**: Capacidad de leer y verificar códigos generados (PNG/SVG).
 - **Reporte de Calidad**: Métricas de densidad, bloques 2x2 y cumplimiento de Quiet Zone.
 
@@ -98,6 +100,9 @@ El archivo `config.ini` permite automatizar el comportamiento del motor. Soporta
 | `QRPS_IndiceColumna` | Columna del TSV para el dato del QR. Las demás columnas se usan como texto inferior. | `1` |
 | `QRPS_NivelEC` | Nivel de corrección de errores: `L, M, Q, H`. | `M` |
 | `QRPS_TamanoModulo` | Tamaño de cada módulo (pixel/punto). | `10` |
+| `QRPS_ColorFront` | Color de los módulos (HEX). | `#000000` |
+| `QRPS_ColorBack` | Color de fondo (HEX). | `#ffffff` |
+| `QRPS_Redondeado` | Nivel de redondeado de módulos (0 a 0.5). | `0` |
 
 ---
 
@@ -122,6 +127,23 @@ Si prefieres no usar la línea de comandos de PowerShell, puedes usar el lanzado
 
 # Múltiples líneas (separadas por comas)
 .\QRCode.ps1 -Data "Dato" -BottomText "Línea 1,Línea 2,Línea 3" -OutputPath "qr_multiline.pdf"
+```
+
+### Personalización Estética
+```powershell
+# QR Azul con fondo gris claro y módulos redondeados
+.\QRCode.ps1 -Data "Hola" -ForegroundColor "#0000FF" -BackgroundColor "#F0F0F0" -Rounded 0.3 -OutputPath "qr_estilo.svg"
+```
+
+### Formatos Estructurados (vCard / WiFi)
+```powershell
+# Generar una vCard (Contacto)
+$contacto = New-vCard -Name "Juan Perez" -Tel "+34600000000" -Email "juan@ejemplo.com"
+.\QRCode.ps1 -Data $contacto -OutputPath "contacto.pdf"
+
+# Configuración WiFi
+$wifi = New-WiFiConfig -Ssid "MiRed" -Password "ClaveSegura" -Auth "WPA"
+.\QRCode.ps1 -Data $wifi -OutputPath "wifi.pdf"
 ```
 
 ### Personalización con Logos
