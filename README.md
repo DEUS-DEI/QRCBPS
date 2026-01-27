@@ -236,6 +236,15 @@ El motor permite incrustar logos en formato SVG o PNG. Al detectar un logo, el s
 .\QRCode.ps1 -Data "Dato Alargado" -Symbol "rMQR" -OutputPath "rectangular.svg"
 ```
 
+### Layouts y Conversión de Imágenes (CLI)
+```powershell
+# Generar PDF por lotes con Layout Grid4x4
+.\QRCode.ps1 -InputFile "lista.tsv" -PdfUnico -Layout "Grid4x4" -OutputPath "catalogo_4x4.pdf"
+
+# Convertir carpeta de imágenes a PDF con Layout Grid6x6
+.\QRCode.ps1 -ImageDir "C:\MisFotos" -Layout "Grid6x6" -OutputPath "galeria.pdf"
+```
+
 ### Decodificación y Calidad
 ```powershell
 .\QRCode.ps1 -Decode -InputPath "codigo.png" -QualityReport

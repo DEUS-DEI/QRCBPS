@@ -47,8 +47,13 @@ param(
     [string]$FontFamily = "Arial, sans-serif",
     [string]$GoogleFont = "",
     [switch]$PdfUnico,
-    [string]$PdfUnicoNombre = "qr_combinado.pdf"
+    [string]$PdfUnicoNombre = "qr_combinado.pdf",
+    [string]$Layout = "Default",
+    [string]$ImageDir = ""
 )
+
+# Cargar ensamblados necesarios
+Add-Type -AssemblyName System.Drawing
 
 # GF(256) lookup tables
 $script:EXP = @(1,2,4,8,16,32,64,128,29,58,116,232,205,135,19,38,76,152,45,90,180,117,234,201,143,3,6,12,24,48,96,192,157,39,78,156,37,74,148,53,106,212,181,119,238,193,159,35,70,140,5,10,20,40,80,160,93,186,105,210,185,111,222,161,95,190,97,194,153,47,94,188,101,202,137,15,30,60,120,240,253,231,211,187,107,214,177,127,254,225,223,163,91,182,113,226,217,175,67,134,17,34,68,136,13,26,52,104,208,189,103,206,129,31,62,124,248,237,199,147,59,118,236,197,151,51,102,204,133,23,46,92,184,109,218,169,79,158,33,66,132,21,42,84,168,77,154,41,82,164,85,170,73,146,57,114,228,213,183,115,230,209,191,99,198,145,63,126,252,229,215,179,123,246,241,255,227,219,171,75,150,49,98,196,149,55,110,220,165,87,174,65,130,25,50,100,200,141,7,14,28,56,112,224,221,167,83,166,81,162,89,178,121,242,249,239,195,155,43,86,172,69,138,9,18,36,72,144,61,122,244,245,247,243,251,235,203,139,11,22,44,88,176,125,250,233,207,131,27,54,108,216,173,71,142,1)
@@ -2776,23 +2781,22 @@ function ExportSvg {
 
 function ExportPdfMultiNative {
     param(
-        [System.Collections.ArrayList]$pages, # Array de PSCustomObject con { m, scale, quiet, fg, bg, text, rounded, frame, frameColor }
-        $path
+        [System.Collections.ArrayList]$pages, # Array de PSCustomObject con { type, m, scale, quiet, fg, bg, text, rounded, frame, frameColor, path }
+        $path,
+        [string]$layout = "Default"
     )
 
     $fs = [System.IO.FileStream]::new($path, [System.IO.FileMode]::Create)
     $bw = [System.IO.BinaryWriter]::new($fs)
     $objOffsets = New-Object System.Collections.Generic.List[long]
     $WriteStr = { param($s) $bytes = [System.Text.Encoding]::ASCII.GetBytes($s); $bw.Write($bytes) }
-
-    # Header
-    &$WriteStr "%PDF-1.4`n"
-
+    
+    $ToDot = { param($v) ([string]("{0:F3}" -f $v)).Replace(',', '.') }
     $StartObj = {
         $objOffsets.Add($fs.Position)
         &$WriteStr "$($objOffsets.Count) 0 obj`n"
     }
-
+    
     $ToPdfColor = {
         param($hex)
         if ([string]::IsNullOrEmpty($hex)) { return "0 0 0" }
@@ -2815,152 +2819,261 @@ function ExportPdfMultiNative {
         return $s.Replace('\', '\\').Replace('(', '\(').Replace(')', '\)')
     }
 
+    $EmbedImage = {
+        param($imgFilePath)
+        try {
+            $bmp = [System.Drawing.Bitmap]::FromFile($imgFilePath)
+            $ms = [System.IO.MemoryStream]::new()
+            $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq "image/jpeg" }
+            $encParams = [System.Drawing.Imaging.EncoderParameters]::new(1)
+            $encParams.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new([System.Drawing.Imaging.Encoder]::Quality, [long]85)
+            $bmp.Save($ms, $codec, $encParams)
+            $imgBytes = $ms.ToArray()
+            $w = $bmp.Width; $h = $bmp.Height
+            $bmp.Dispose(); $ms.Dispose()
+            return @{ bytes=$imgBytes; w=$w; h=$h }
+        } catch {
+            return $null
+        }
+    }
+
+    &$WriteStr "%PDF-1.4`n"
+    
+    # Pre-procesar Layout
+    $cols = 1; $rows = 1; $pageW = 0; $pageH = 0
+    $isGrid = $false
+    if ($layout -eq "Grid4x4") { $cols = 4; $rows = 4; $pageW = 595; $pageH = 842; $isGrid = $true }
+    elseif ($layout -eq "Grid4x5") { $cols = 4; $rows = 5; $pageW = 595; $pageH = 842; $isGrid = $true }
+    elseif ($layout -eq "Grid6x6") { $cols = 6; $rows = 6; $pageW = 595; $pageH = 842; $isGrid = $true }
+
+    $itemsPerPage = $cols * $rows
+    $totalItems = $pages.Count
+    $totalPages = if ($isGrid) { [Math]::Ceiling($totalItems / $itemsPerPage) } else { $totalItems }
+
     # 1. Catalog
     &$StartObj
     &$WriteStr "<< /Type /Catalog /Pages 2 0 R >>`nendobj`n"
 
     # 2. Pages Root
-    $pagesCount = $pages.Count
-    $pageRefs = New-Object System.Text.StringBuilder
-    for ($i=0; $i -lt $pagesCount; $i++) {
-        [void]$pageRefs.Append("$($i * 2 + 3) 0 R ")
-    }
+    $pagesRootId = 2
     &$StartObj
-    &$WriteStr "<< /Type /Pages /Kids [$($pageRefs.ToString())] /Count $pagesCount >>`nendobj`n"
+    $kidsPlaceholderPos = $fs.Position + 25 # approximate
+    &$WriteStr "<< /Type /Pages /Kids [ "
+    $kidsStartPos = $fs.Position
+    for ($i=0; $i -lt $totalPages; $i++) { &$WriteStr "000 0 R " }
+    &$WriteStr "] /Count $totalPages >>`nendobj`n"
 
-    # Objetos de Página y Contenido (alternados)
-    for ($i=0; $i -lt $pagesCount; $i++) {
-        $p = $pages[$i]
-        $m = $p.m
-        $scale = $p.scale
-        $quiet = $p.quiet
-        $foregroundColor = $p.fg
-        $backgroundColor = $p.bg
-        $bottomText = $p.text
-        $rounded = $p.rounded
-        $frameText = $p.frame
-        $frameColor = $p.frameColor
+    $actualPageIds = @()
+    $imageObjects = @{} # Path -> @{ id, w, h }
 
-        $baseW = if ($null -ne $m.Width) { $m.Width } else { $m.Size }
-        $baseH = if ($null -ne $m.Height) { $m.Height } else { $m.Size }
-        
-        $frameSize = 0
-        if ($frameText) { $frameSize = 4 }
-        $wUnits = $baseW + ($quiet * 2) + ($frameSize * 2)
-        $hUnits = $baseH + ($quiet * 2) + ($frameSize * 2)
-        
-        # Texto inferior - Soporte multi-línea con \n
-        $allLines = @()
-        if ($bottomText.Count -gt 0) {
-            foreach ($item in $bottomText) {
-                if ([string]::IsNullOrEmpty($item)) { continue }
-                $subLines = $item -split "\\n"
-                foreach ($sl in $subLines) {
-                    if (-not [string]::IsNullOrEmpty($sl)) { $allLines += $sl }
-                }
-            }
+    for ($pIdx = 0; $pIdx -lt $totalPages; $pIdx++) {
+        $itemsInThisPage = if ($isGrid) {
+            $start = $pIdx * $itemsPerPage
+            $end = [Math]::Min($start + $itemsPerPage, $totalItems)
+            $pages[$start..($end-1)]
+        } else {
+            @($pages[$pIdx])
         }
 
-        $textHeight = 0
-        if ($allLines.Count -gt 0) {
-            $textHeight = ($allLines.Count * 3) + 1
-        }
-        $hTotalUnits = $hUnits + $textHeight
-        $pdfW = $wUnits * $scale
-        $pdfH = $hTotalUnits * $scale
-
-        # Objeto Página (3, 5, 7...)
+        # Objeto Página (Placeholder)
         &$StartObj
-        &$WriteStr "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $(ToDot $pdfW) $(ToDot $pdfH)] /Contents $($objOffsets.Count + 1) 0 R /Resources $($pagesCount * 2 + 3) 0 R >>`nendobj`n"
-
-        # Objeto Contenido (4, 6, 8...)
-        $contentSb = New-Object System.Text.StringBuilder
-        $fgColorPdf = &$ToPdfColor $foregroundColor
-        $bgColorPdf = &$ToPdfColor $backgroundColor
-        $fColorPdf = if ($frameColor) { &$ToPdfColor $frameColor } else { $fgColorPdf }
-
-        [void]$contentSb.AppendLine("$bgColorPdf rg 0 0 $(ToDot $pdfW) $(ToDot $pdfH) re f")
-
-        if ($frameText) {
-            $frameH = ($baseH + ($quiet * 2) + ($frameSize * 2)) * $scale
-            [void]$contentSb.AppendLine("$fColorPdf rg 0 $(ToDot ($pdfH - $frameH)) $(ToDot $pdfW) $(ToDot $frameH) re f")
-            [void]$contentSb.AppendLine("$bgColorPdf rg $(ToDot ($frameSize * $scale)) $(ToDot (($frameSize + $textHeight) * $scale)) $(ToDot (($baseW + $quiet * 2) * $scale)) $(ToDot (($baseH + $quiet * 2) * $scale)) re f")
-            [void]$contentSb.AppendLine("BT /F1 $(ToDot ($frameSize * 0.6 * $scale)) Tf $bgColorPdf rg")
-            $fTextEscaped = &$EscapePdfString $frameText
-            $fTextW = $frameText.Length * ($frameSize * 0.4 * $scale)
-            $fTextX = ($pdfW - $fTextW) / 2
-            $fTextY = $pdfH - ($frameSize * 0.7 * $scale)
-            [void]$contentSb.AppendLine("1 0 0 1 $(ToDot $fTextX) $(ToDot $fTextY) Tm ($fTextEscaped) Tj ET")
+        $pageId = $objOffsets.Count
+        $actualPageIds += $pageId
+        
+        $pW = if ($isGrid) { $pageW } else { 
+            $item = $itemsInThisPage[0]
+            $baseW = if ($null -ne $item.m.Width) { $item.m.Width } else { $item.m.Size }
+            $frameSize = if ($item.frame) { 4 } else { 0 }
+            ($baseW + ($item.quiet * 2) + ($frameSize * 2)) * $item.scale
+        }
+        $pH = if ($isGrid) { $pageH } else {
+            $item = $itemsInThisPage[0]
+            $baseH = if ($null -ne $item.m.Height) { $item.m.Height } else { $item.m.Size }
+            $frameSize = if ($item.frame) { 4 } else { 0 }
+            $allLines = @()
+            if ($item.text.Count -gt 0) {
+                foreach ($txt in $item.text) { if ($txt) { foreach ($sl in ($txt -split "\\n")) { if ($sl) { $allLines += $sl } } } }
+            }
+            $textHeight = if ($allLines.Count -gt 0) { ($allLines.Count * 3) + 1 } else { 0 }
+            ($baseH + ($item.quiet * 2) + ($frameSize * 2) + $textHeight) * $item.scale
         }
 
-        [void]$contentSb.AppendLine("$fgColorPdf rg")
-        $rSize = [double]$rounded * $scale
-        $kappa = 0.552284749831
-        for ($r = 0; $r -lt $baseH; $r++) {
-            for ($c = 0; $c -lt $baseW; $c++) {
-                if ((GetM $m $r $c) -eq 1) {
-                    $x = ($c + $quiet + $frameSize) * $scale
-                    $y = ($hTotalUnits - ($r + $quiet + $frameSize + 1)) * $scale
-                    $S = $scale
-                    if ([double]$rounded -gt 0 -and $rSize -gt 0) {
-                        $rV = $rSize
-                        if ($rV -gt ($S / 2)) { $rV = $S / 2 }
-                        $k = $rV * $kappa
-                        [void]$contentSb.AppendLine("$(ToDot ($x + $rV)) $(ToDot $y) m $(ToDot ($x + $S - $rV)) $(ToDot $y) l")
-                        [void]$contentSb.AppendLine("$(ToDot ($x + $S - $rV + $k)) $(ToDot $y) $(ToDot ($x + $S)) $(ToDot ($y + $rV - $k)) $(ToDot ($x + $S)) $(ToDot ($y + $rV)) c")
-                        [void]$contentSb.AppendLine("$(ToDot ($x + $S)) $(ToDot ($y + $S - $rV)) l")
-                        [void]$contentSb.AppendLine("$(ToDot ($x + $S)) $(ToDot ($y + $S - $rV + $k)) $(ToDot ($x + $S - $rV + $k)) $(ToDot ($y + $S)) $(ToDot ($x + $S - $rV)) $(ToDot ($y + $S)) c")
-                        [void]$contentSb.AppendLine("$(ToDot ($x + $rV)) $(ToDot ($y + $S)) l")
-                        [void]$contentSb.AppendLine("$(ToDot ($x + $rV - $k)) $(ToDot ($y + $S)) $(ToDot $x) $(ToDot ($y + $S - $rV + $k)) $(ToDot $x) $(ToDot ($y + $S - $rV)) c")
-                        [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot ($y + $rV)) l")
-                        [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot ($y + $rV - $k)) $(ToDot ($x + $rV - $k)) $(ToDot $y) $(ToDot ($x + $rV)) $(ToDot $y) c f")
-                    } else {
-                        [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot $y) $(ToDot $scale) $(ToDot $scale) re f")
+        # Content Object
+        $contentSb = New-Object System.Text.StringBuilder
+        $xObjects = @{} # Name -> Id
+
+        $cellW = $pW / $cols
+        $cellH = $pH / $rows
+
+        for ($i = 0; $i -lt $itemsInThisPage.Count; $i++) {
+            $item = $itemsInThisPage[$i]
+            $c = $i % $cols
+            $r = [Math]::Floor($i / $cols)
+            
+            $offsetX = $c * $cellW
+            $offsetY = $pH - (($r + 1) * $cellH)
+
+            if ($item.type -eq "Image") {
+                if (-not $imageObjects.ContainsKey($item.path)) {
+                    $imgData = &$EmbedImage $item.path
+                    if ($imgData) {
+                        &$StartObj
+                        $imgId = $objOffsets.Count
+                        &$WriteStr "<< /Type /XObject /Subtype /Image /Width $($imgData.w) /Height $($imgData.h) /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length $($imgData.bytes.Length) >>`nstream`n"
+                        $bw.Write($imgData.bytes)
+                        &$WriteStr "`nendstream`nendobj`n"
+                        $imageObjects[$item.path] = @{ id=$imgId; w=$imgData.w; h=$imgData.h }
                     }
                 }
+                
+                if ($imageObjects.ContainsKey($item.path)) {
+                    $imgInfo = $imageObjects[$item.path]
+                    $imgName = "Im$($imgInfo.id)"
+                    $xObjects[$imgName] = $imgInfo.id
+                    
+                    # Calcular escala manteniendo aspecto
+                    $ratio = [Math]::Min($cellW / $imgInfo.w, $cellH / $imgInfo.h)
+                    $dispW = $imgInfo.w * $ratio
+                    $dispH = $imgInfo.h * $ratio
+                    $dispX = $offsetX + ($cellW - $dispW) / 2
+                    $dispY = $offsetY + ($cellH - $dispH) / 2
+                    
+                    [void]$contentSb.AppendLine("q $(ToDot $dispW) 0 0 $(ToDot $dispH) $(ToDot $dispX) $(ToDot $dispY) cm /$imgName Do Q")
+                }
+            } else {
+                # QR Drawing Logic
+                $m = $item.m
+                $scale = $item.scale
+                $quiet = $item.quiet
+                $rounded = $item.rounded
+                $frameText = $item.frame
+                $frameColor = $item.frameColor
+                $bottomText = $item.text
+                $foregroundColor = $item.fg
+                $backgroundColor = $item.bg
+
+                $baseW = if ($null -ne $m.Width) { $m.Width } else { $m.Size }
+                $baseH = if ($null -ne $m.Height) { $m.Height } else { $m.Size }
+                $frameSize = if ($frameText) { 4 } else { 0 }
+                $allLines = @()
+                if ($bottomText.Count -gt 0) {
+                    foreach ($txt in $bottomText) { if ($txt) { foreach ($sl in ($txt -split "\\n")) { if ($sl) { $allLines += $sl } } } }
+                }
+                $textHeight = if ($allLines.Count -gt 0) { ($allLines.Count * 3) + 1 } else { 0 }
+                
+                $itemW = ($baseW + ($quiet * 2) + ($frameSize * 2)) * $scale
+                $itemH = ($baseH + ($quiet * 2) + ($frameSize * 2) + $textHeight) * $scale
+                
+                # Centrar item en celda
+                $innerX = $offsetX + ($cellW - $itemW) / 2
+                $innerY = $offsetY + ($cellH - $itemH) / 2
+
+                $fgColorPdf = &$ToPdfColor $foregroundColor
+                $bgColorPdf = &$ToPdfColor $backgroundColor
+                $fColorPdf = if ($frameColor) { &$ToPdfColor $frameColor } else { $fgColorPdf }
+
+                [void]$contentSb.AppendLine("q 1 0 0 1 $(ToDot $innerX) $(ToDot $innerY) cm")
+                [void]$contentSb.AppendLine("$bgColorPdf rg 0 0 $(ToDot $itemW) $(ToDot $itemH) re f")
+                
+                if ($frameText) {
+                    $frameH = ($baseH + ($quiet * 2) + ($frameSize * 2)) * $scale
+                    [void]$contentSb.AppendLine("$fColorPdf rg 0 $(ToDot ($itemH - $frameH)) $(ToDot $itemW) $(ToDot $frameH) re f")
+                    [void]$contentSb.AppendLine("$bgColorPdf rg $(ToDot ($frameSize * $scale)) $(ToDot (($frameSize + $textHeight) * $scale)) $(ToDot (($baseW + $quiet * 2) * $scale)) $(ToDot (($baseH + $quiet * 2) * $scale)) re f")
+                    [void]$contentSb.AppendLine("BT /F1 $(ToDot ($frameSize * 0.6 * $scale)) Tf $bgColorPdf rg")
+                    $fTextEscaped = &$EscapePdfString $frameText
+                    $fTextW = $frameText.Length * ($frameSize * 0.4 * $scale)
+                    $fTextX = ($itemW - $fTextW) / 2
+                    $fTextY = $itemH - ($frameSize * 0.7 * $scale)
+                    [void]$contentSb.AppendLine("1 0 0 1 $(ToDot $fTextX) $(ToDot $fTextY) Tm ($fTextEscaped) Tj ET")
+                }
+
+                [void]$contentSb.AppendLine("$fgColorPdf rg")
+                $rSize = [double]$rounded * $scale
+                $kappa = 0.552284749831
+                for ($row = 0; $row -lt $baseH; $row++) {
+                    for ($col = 0; $col -lt $baseW; $col++) {
+                        if ((GetM $m $row $col) -eq 1) {
+                            $x = ($col + $quiet + $frameSize) * $scale
+                            $y = ($itemH - ($row + $quiet + $frameSize + 1) * $scale)
+                            if ($rounded -gt 0) {
+                                $rV = [Math]::Min($rSize, $scale / 2)
+                                $k = $rV * $kappa
+                                [void]$contentSb.AppendLine("$(ToDot ($x + $rV)) $(ToDot $y) m $(ToDot ($x + $scale - $rV)) $(ToDot $y) l")
+                                [void]$contentSb.AppendLine("$(ToDot ($x + $scale - $rV + $k)) $(ToDot $y) $(ToDot ($x + $scale)) $(ToDot ($y + $rV - $k)) $(ToDot ($x + $scale)) $(ToDot ($y + $rV)) c")
+                                [void]$contentSb.AppendLine("$(ToDot ($x + $scale)) $(ToDot ($y + $scale - $rV)) l")
+                                [void]$contentSb.AppendLine("$(ToDot ($x + $scale)) $(ToDot ($y + $scale - $rV + $k)) $(ToDot ($x + $scale - $rV + $k)) $(ToDot ($y + $scale)) $(ToDot ($x + $scale - $rV)) $(ToDot ($y + $scale)) c")
+                                [void]$contentSb.AppendLine("$(ToDot ($x + $rV)) $(ToDot ($y + $scale)) l")
+                                [void]$contentSb.AppendLine("$(ToDot ($x + $rV - $k)) $(ToDot ($y + $scale)) $(ToDot $x) $(ToDot ($y + $scale - $rV + $k)) $(ToDot $x) $(ToDot ($y + $scale - $rV)) c")
+                                [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot ($y + $rV)) l")
+                                [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot ($y + $rV - $k)) $(ToDot ($x + $rV - $k)) $(ToDot $y) $(ToDot ($x + $rV)) $(ToDot $y) c f")
+                            } else {
+                                [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot $y) $(ToDot $scale) $(ToDot $scale) re f")
+                            }
+                        }
+                    }
+                }
+
+                if ($allLines.Count -gt 0) {
+                    [void]$contentSb.AppendLine("BT /F1 $(ToDot ($scale * 2)) Tf $fgColorPdf rg")
+                    $currentY = ($textHeight - 2) * $scale
+                    foreach ($line in $allLines) {
+                        $textW = $line.Length * ($scale * 2 * 0.55)
+                        $startX = ($itemW - $textW) / 2
+                        $escapedLine = &$EscapePdfString $line
+                        [void]$contentSb.AppendLine("1 0 0 1 $(ToDot $startX) $(ToDot $currentY) Tm ($escapedLine) Tj")
+                        $currentY -= ($scale * 3)
+                    }
+                    [void]$contentSb.AppendLine("ET")
+                }
+                [void]$contentSb.AppendLine("Q")
             }
         }
 
-        if ($allLines.Count -gt 0) {
-            [void]$contentSb.AppendLine("BT /F1 $(ToDot ($scale * 2)) Tf $fgColorPdf rg")
-            $currentY = ($textHeight - 2) * $scale
-            foreach ($line in $allLines) {
-                # Centrado: Helvetica tiene un ancho aproximado de 0.6 * size
-                # Para un centrado más preciso, usamos un factor de 0.5-0.6
-                $textW = $line.Length * ($scale * 2 * 0.55) 
-                $startX = ($pdfW - $textW) / 2
-                if ($startX -lt 0) { $startX = 0 }
-                $escapedLine = &$EscapePdfString $line
-                [void]$contentSb.AppendLine("1 0 0 1 $(ToDot $startX) $(ToDot $currentY) Tm ($escapedLine) Tj")
-                $currentY -= ($scale * 3)
-            }
-            [void]$contentSb.AppendLine("ET")
+        # Resources Object
+        &$StartObj
+        $resId = $objOffsets.Count
+        $resStr = "<< /ProcSet [/PDF /Text /ImageB /ImageC /ImageI] /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> >>"
+        if ($xObjects.Count -gt 0) {
+            $resStr += " /XObject << "
+            foreach ($xo in $xObjects.Keys) { $resStr += "/$xo $($xObjects[$xo]) 0 R " }
+            $resStr += " >>"
         }
+        $resStr += " >>"
+        &$WriteStr "$resStr`nendobj`n"
 
+        # Content Object
         $enc = [System.Text.Encoding]::GetEncoding(1252)
         $contentBytes = $enc.GetBytes($contentSb.ToString())
         &$StartObj
+        $contId = $objOffsets.Count
         &$WriteStr "<< /Length $($contentBytes.Length) >>`nstream`n"
         $bw.Write($contentBytes)
         &$WriteStr "`nendstream`nendobj`n"
+
+        # Update Page Object
+        $currPos = $fs.Position
+        $fs.Position = $objOffsets[$pageId - 1]
+        &$WriteStr "$pageId 0 obj`n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $(ToDot $pW) $(ToDot $pH)] /Contents $contId 0 R /Resources $resId 0 R >>`nendobj`n"
+        $fs.Position = $currPos
     }
 
-    # Resources Shared (Ultimo objeto)
-    &$StartObj
-    &$WriteStr "<< /ProcSet [/PDF /Text] /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> >> >>`nendobj`n"
+    # Finalize Pages Root
+    $currPos = $fs.Position
+    $fs.Position = $kidsStartPos
+    foreach ($id in $actualPageIds) { &$WriteStr ("{0:000} 0 R " -f $id) }
+    $fs.Position = $currPos
 
+    # Resources Shared (Not used anymore as each page has its own)
+    
     # xref
     $xrefPos = $fs.Position
     &$WriteStr "xref`n0 $($objOffsets.Count + 1)`n0000000000 65535 f `n"
-    foreach ($off in $objOffsets) {
-        &$WriteStr ("{0:0000000000} 00000 n `n" -f $off)
-    }
+    foreach ($off in $objOffsets) { &$WriteStr ("{0:0000000000} 00000 n `n" -f $off) }
 
     # trailer
     &$WriteStr "trailer`n<< /Size $($objOffsets.Count + 1) /Root 1 0 R >>`nstartxref`n$xrefPos`n%%EOF"
 
-    $bw.Close()
-    $fs.Close()
+    $bw.Close(); $fs.Close()
 }
 
 function ExportPdfNative {
@@ -4195,6 +4308,29 @@ function Get-IniValue($content, $section, $key, $defaultValue) {
     return $defaultValue
 }
 
+function Clean-Name($name) {
+    if ([string]::IsNullOrWhiteSpace($name)) { return "unnamed" }
+    # Normalizar para separar acentos de las letras (NFD)
+    $normalized = $name.Normalize([System.Text.NormalizationForm]::FormD)
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($c in $normalized.ToCharArray()) {
+        $category = [System.Globalization.CharUnicodeInfo]::GetUnicodeCategory($c)
+        # Mantener solo caracteres que no sean marcas de acentuación
+        if ($category -ne [System.Globalization.UnicodeCategory]::NonSpacingMark) {
+            [void]$sb.Append($c)
+        }
+    }
+    $clean = $sb.ToString()
+    # Reemplazar la 'ñ' y 'Ñ' manualmente si no se normalizaron (algunas implementaciones de .NET)
+    $clean = $clean.Replace("ñ", "n").Replace("Ñ", "N")
+    # Reemplazar cualquier cosa que no sea alfanumérica, punto, guión o espacio por guión bajo
+    $clean = $clean -replace '[^a-zA-Z0-9\.\-\s]', '_'
+    # Colapsar múltiples guiones bajos o espacios
+    $clean = $clean -replace '_+', '_'
+    $clean = $clean -replace '\s+', ' '
+    return $clean.Trim().Trim('_')
+}
+
 function Start-BatchProcessing {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -4223,7 +4359,8 @@ function Start-BatchProcessing {
         [string]$FontFamily = "",
         [string]$GoogleFont = "",
         [switch]$PdfUnico = $false,
-        [string]$PdfUnicoNombre = ""
+        [string]$PdfUnicoNombre = "",
+        [string]$Layout = "Default"
     )
     
     if (-not (Test-Path $IniPath) -and [string]::IsNullOrEmpty($InputFileOverride)) { 
@@ -4303,6 +4440,7 @@ function Start-BatchProcessing {
     # PDF Unico logic (Prioritize CLI)
      $pdfUnico = if ($PdfUnico) { $true } else { (Get-IniValue $iniContent "QRPS" "QRPS_PdfUnico" "no") -eq "si" }
      $pdfUnicoNombre = if (-not [string]::IsNullOrEmpty($PdfUnicoNombre)) { $PdfUnicoNombre } else { Get-IniValue $iniContent "QRPS" "QRPS_PdfUnicoNombre" "qr_combinado.pdf" }
+     $pdfLayout = if ($Layout -ne "Default") { $Layout } else { Get-IniValue $iniContent "QRPS" "QRPS_Layout" "Default" }
     
     # Si hay logo en config, forzamos EC Level H
     if (-not [string]::IsNullOrEmpty($logoPathIni)) {
@@ -4425,9 +4563,9 @@ function Start-BatchProcessing {
         if ($useConsec) {
             $baseName = "$count"
         } else {
-            # Sanitizar nombre basado Ãºnicamente en los datos de la columna seleccionada
-            $baseName = $dataToEncode -replace '[^a-zA-Z0-9]', '_'
-            if ($baseName.Length -gt 30) { $baseName = $baseName.Substring(0, 30) }
+            # Sanitizar nombre basado únicamente en los datos de la columna seleccionada
+            $baseName = Clean-Name $dataToEncode
+            if ($baseName.Length -gt 50) { $baseName = $baseName.Substring(0, 50) }
         }
         
         # Construir nombre completo
@@ -4521,8 +4659,8 @@ function Start-BatchProcessing {
                     frameColor = $p.frameColor
                 })
             }
-            ExportPdfMultiNative -pages $pagesForNative -path $finalPdfPath
-            Write-Status "[OK] PDF Ãºnico nativo generado exitosamente en: $finalPdfPath"
+            ExportPdfMultiNative -pages $pagesForNative -path $finalPdfPath -layout $pdfLayout
+            Write-Status "[OK] PDF único nativo generado exitosamente en: $finalPdfPath"
         } else {
             Write-Status "`nGenerando PDF Ãnico vía Edge de $($collectedPages.Count) pÃ¡ginas (requerido por logos/degradados)..."
             $tempHtml = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".html")
@@ -4600,6 +4738,125 @@ function Start-BatchProcessing {
 }
 
 # Ejecutar proceso batch si existe config.ini y se llama el script directamente
+function Convert-ImagesToPdf {
+    param(
+        [string]$inputDir,
+        [string]$outputPath,
+        [string]$layout = "Grid4x4"
+    )
+    if (-not (Test-Path $inputDir)) { Write-Error "Carpeta no encontrada: $inputDir"; return }
+    $files = Get-ChildItem -Path $inputDir -Include *.jpg, *.png, *.jpeg -Recurse | Where-Object { -not $_.PSIsContainer }
+    if ($files.Count -eq 0) { Write-Warning "No se encontraron imágenes en $inputDir"; return }
+    
+    $pages = New-Object System.Collections.ArrayList
+    foreach ($f in $files) {
+        $pages.Add([PSCustomObject]@{
+            type = "Image"
+            path = $f.FullName
+            scale = 1
+            quiet = 0
+        })
+    }
+    
+    Write-Status "Generando PDF con $($files.Count) imágenes usando layout $layout..."
+    ExportPdfMultiNative -pages $pages -path $outputPath -layout $layout
+    Write-Status "[OK] PDF generado en: $outputPath"
+}
+
+function Show-Menu {
+    $oldEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    
+    do {
+        Clear-Host
+        Write-Host "==============================================" -ForegroundColor Cyan
+        Write-Host "       QRPS - GENERADOR QR & PDF NATIVO       " -ForegroundColor White -BackgroundColor Blue
+        Write-Host "==============================================" -ForegroundColor Cyan
+        Write-Host " 1. Generar QR Individual (Manual)"
+        Write-Host " 2. Procesamiento por Lotes (TSV/CSV)"
+        Write-Host " 3. Conversor de Imágenes a PDF (Layouts)"
+        Write-Host " 4. Decodificar QR desde Archivo"
+        Write-Host " 5. Editar Configuración (config.ini)"
+        Write-Host " 6. Salir"
+        Write-Host "----------------------------------------------"
+        $choice = Read-Host "Seleccione una opción"
+        
+        switch ($choice) {
+            "1" {
+                $data = Read-Host "Ingrese el contenido del QR"
+                if ([string]::IsNullOrWhiteSpace($data)) { break }
+                $out = Read-Host "Nombre del archivo de salida (ej: qr.pdf, qr.png)"
+                if ([string]::IsNullOrWhiteSpace($out)) { $out = "codigo_qr.pdf" }
+                
+                if ($out -match "\.pdf$") {
+                    $m = New-QRCode -Data $data
+                    $pages = New-Object System.Collections.ArrayList
+                    $pages.Add([PSCustomObject]@{
+                        type = "QR"
+                        m = $m
+                        scale = 10
+                        quiet = 4
+                        fg = "#000000"
+                        bg = "#ffffff"
+                        text = @()
+                        rounded = 0
+                        frame = ""
+                        frameColor = ""
+                    })
+                    ExportPdfMultiNative -pages $pages -path $out
+                    Write-Status "[OK] PDF generado: $out"
+                } else {
+                    New-QRCode -Data $data -OutputPath $out -ShowConsole
+                }
+                Read-Host "`nPresione Enter para continuar..."
+            }
+            "2" {
+                $file = Read-Host "Ruta del archivo TSV/CSV (Deje vacío para usar config.ini)"
+                if ($file) { 
+                    Start-BatchProcessing -InputFileOverride $file 
+                } else { 
+                    Start-BatchProcessing 
+                }
+                Read-Host "`nPresione Enter para continuar..."
+            }
+            "3" {
+                $dir = Read-Host "Carpeta con imágenes (JPG/PNG)"
+                if (-not (Test-Path $dir)) { Write-Error "Ruta no válida"; break }
+                $out = Read-Host "Archivo PDF de salida [imagenes.pdf]"
+                if (-not $out) { $out = "imagenes.pdf" }
+                Write-Host "`nLayouts disponibles: Default (1x1), Grid4x4, Grid4x5, Grid6x6"
+                $lay = Read-Host "Seleccione Layout [Grid4x4]"
+                if (-not $lay) { $lay = "Grid4x4" }
+                Convert-ImagesToPdf -inputDir $dir -outputPath $out -layout $lay
+                Read-Host "`nPresione Enter para continuar..."
+            }
+            "4" {
+                $path = Read-Host "Ruta de la imagen del QR"
+                if (Test-Path $path) {
+                    $m = Import-QRCode $path
+                    if ($m.Width -ne $m.Height) { $dec = Decode-RMQRMatrix $m }
+                    elseif ($m.Size -lt 21) { $dec = Decode-MicroQRMatrix $m }
+                    else { $dec = Decode-QRCodeMatrix $m }
+                    Write-Host "`nContenido: $($dec.Text)" -ForegroundColor Green
+                } else {
+                    Write-Error "Archivo no encontrado"
+                }
+                Read-Host "`nPresione Enter para continuar..."
+            }
+            "5" {
+                if (Test-Path ".\config.ini") {
+                    Start-Process notepad ".\config.ini"
+                } else {
+                    Write-Error "config.ini no encontrado."
+                }
+            }
+            "6" { return }
+        }
+    } while ($true)
+    
+    [Console]::OutputEncoding = $oldEncoding
+}
+
 # ENTRY POINT
 if ($Decode -and -not [string]::IsNullOrEmpty($InputPath)) {
     Write-Status "Importando archivo para decodificación: $InputPath"
@@ -4640,15 +4897,16 @@ if ($Decode -and -not [string]::IsNullOrEmpty($InputPath)) {
 } elseif (-not [string]::IsNullOrEmpty($Data)) {
     # Modo CLI Directo (Un solo QR)
     New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole -Decode:$Decode -QualityReport:$QualityReport -LogoPath $LogoPath -LogoScale $LogoScale -BottomText $BottomText -ForegroundColor $ForegroundColor -ForegroundColor2 $ForegroundColor2 -BackgroundColor $BackgroundColor -Rounded $Rounded -GradientType $GradientType -FrameText $FrameText -FrameColor $FrameColor -FontFamily $FontFamily -GoogleFont $GoogleFont
+} elseif (-not [string]::IsNullOrEmpty($ImageDir)) {
+    # Modo Conversor de Imágenes a PDF (CLI)
+    $finalPath = if ($OutputPath) { $OutputPath } else { "imagenes_convertidas.pdf" }
+    Convert-ImagesToPdf -inputDir $ImageDir -outputPath $finalPath -layout $Layout
 } else {
-    # Modo Batch (Por Archivo o Config)
+    # Modo Batch (Por Archivo o Config) o Menú Interactivo
     if (-not [string]::IsNullOrEmpty($InputFile) -or (Test-Path $IniPath)) {
-        Start-BatchProcessing -IniPath $IniPath -InputFileOverride $InputFile -OutputDirOverride $OutputDir -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $LogoPath -LogoScale $LogoScale -ForegroundColor $ForegroundColor -ForegroundColor2 $ForegroundColor2 -BackgroundColor $BackgroundColor -Rounded $Rounded -GradientType $GradientType -FrameText $FrameText -FrameColor $FrameColor -FontFamily $FontFamily -GoogleFont $GoogleFont -PdfUnico:$PdfUnico -PdfUnicoNombre $PdfUnicoNombre
+        Start-BatchProcessing -IniPath $IniPath -InputFileOverride $InputFile -OutputDirOverride $OutputDir -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -LogoPath $LogoPath -LogoScale $LogoScale -ForegroundColor $ForegroundColor -ForegroundColor2 $ForegroundColor2 -BackgroundColor $BackgroundColor -Rounded $Rounded -GradientType $GradientType -FrameText $FrameText -FrameColor $FrameColor -FontFamily $FontFamily -GoogleFont $GoogleFont -PdfUnico:$PdfUnico -PdfUnicoNombre $PdfUnicoNombre -Layout $Layout
     } else {
-        Write-Status "`n  [QR] QR Generator FINAL - PowerShell Nativo`n"
-        Write-Status "  Uso CLI QR:      .\QRCode.ps1 -Data 'Texto' -OutputPath 'out.png'"
-        Write-Status "  Uso CLI Batch:   .\QRCode.ps1 -InputFile 'lista.tsv' -OutputDir 'resultados'"
-        Write-Status "  Uso Automatico:  Crear config.ini y ejecutar .\QRCode.ps1"
+        Show-Menu
     }
 }
 
