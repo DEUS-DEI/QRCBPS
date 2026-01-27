@@ -41,10 +41,12 @@ if "%choice%"=="2" (
     echo.
     set /p qrdata="Ingresa el texto o URL para el QR: "
     set /p qrname="Ingresa el nombre del archivo (ej: mi_codigo.svg): "
-     set /p qrlogo="Ingresa la ruta del logo (SVG/PNG) o presiona Enter para omitir: "
-     echo.
-     echo [INFO] Generando QR...
-     powershell -ExecutionPolicy Bypass -File QRCode.ps1 -Data "!qrdata!" -OutputPath "!qrname!" -LogoPath "!qrlogo!"
+    set /p qrlogo="Ingresa la ruta del logo (SVG/PNG) o presiona Enter para omitir: "
+    set /p qrscale="Ingresa la escala del logo (1-30, default 20) o presiona Enter: "
+    if "!qrscale!"=="" set qrscale=20
+    echo.
+    echo [INFO] Generando QR...
+    powershell -ExecutionPolicy Bypass -File QRCode.ps1 -Data "!qrdata!" -OutputPath "!qrname!" -LogoPath "!qrlogo!" -LogoScale !qrscale!
     goto end
 )
 
