@@ -2781,7 +2781,7 @@ function ExportSvg {
 
 function ExportPdfMultiNative {
     param(
-        [System.Collections.ArrayList]$pages, # Array de PSCustomObject con { type, m, scale, quiet, fg, bg, text, rounded, frame, frameColor, path }
+        [System.Collections.ArrayList]$pages, # Array de PSCustomObject con { type, m, scale, quiet, fg, bg, fg2, gradType, text, rounded, frame, frameColor, path, logoPath, logoScale }
         $path,
         [string]$layout = "Default"
     )
@@ -2817,6 +2817,30 @@ function ExportPdfMultiNative {
         param($s)
         if ([string]::IsNullOrEmpty($s)) { return "" }
         return $s.Replace('\', '\\').Replace('(', '\(').Replace(')', '\)')
+    }
+
+    $GetGradientColor = {
+        param($hex1, $hex2, $ratio)
+        $ToRGB = {
+            param($h)
+            $h = $h.Replace("#", "")
+            if ($h.Length -eq 3) {
+                $r = [Convert]::ToInt32($h.Substring(0, 1) * 2, 16)
+                $g = [Convert]::ToInt32($h.Substring(1, 1) * 2, 16)
+                $b = [Convert]::ToInt32($h.Substring(2, 1) * 2, 16)
+            } else {
+                $r = [Convert]::ToInt32($h.Substring(0, 2), 16)
+                $g = [Convert]::ToInt32($h.Substring(2, 2), 16)
+                $b = [Convert]::ToInt32($h.Substring(4, 2), 16)
+            }
+            return @($r, $g, $b)
+        }
+        $rgb1 = &$ToRGB $hex1
+        $rgb2 = &$ToRGB $hex2
+        $r = ($rgb1[0] + ($rgb2[0] - $rgb1[0]) * $ratio) / 255.0
+        $g = ($rgb1[1] + ($rgb2[1] - $rgb1[1]) * $ratio) / 255.0
+        $b = ($rgb1[2] + ($rgb2[2] - $rgb1[2]) * $ratio) / 255.0
+        return "$(ToDot $r) $(ToDot $g) $(ToDot $b)"
     }
 
     $EmbedImage = {
@@ -2950,7 +2974,11 @@ function ExportPdfMultiNative {
                 $frameColor = $item.frameColor
                 $bottomText = $item.text
                 $foregroundColor = $item.fg
+                $foregroundColor2 = $item.fg2
                 $backgroundColor = $item.bg
+                $gradType = $item.gradType
+                $logoPath = $item.logoPath
+                $logoScale = $item.logoScale
 
                 $baseW = if ($null -ne $m.Width) { $m.Width } else { $m.Size }
                 $baseH = if ($null -ne $m.Height) { $m.Height } else { $m.Size }
@@ -2987,14 +3015,65 @@ function ExportPdfMultiNative {
                     [void]$contentSb.AppendLine("1 0 0 1 $(ToDot $fTextX) $(ToDot $fTextY) Tm ($fTextEscaped) Tj ET")
                 }
 
-                [void]$contentSb.AppendLine("$fgColorPdf rg")
+                # Manejo de Logo
+                $logoInfo = $null
+                $logoDrawW = 0
+                if ($logoPath -and (Test-Path $logoPath)) {
+                    if (-not $imageObjects.ContainsKey($logoPath)) {
+                        $imgData = &$EmbedImage $logoPath
+                        if ($imgData) {
+                            &$StartObj
+                            $imgId = $objOffsets.Count
+                            &$WriteStr "<< /Type /XObject /Subtype /Image /Width $($imgData.w) /Height $($imgData.h) /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length $($imgData.bytes.Length) >>`nstream`n"
+                            $bw.Write($imgData.bytes)
+                            &$WriteStr "`nendstream`nendobj`n"
+                            $imageObjects[$logoPath] = @{ id=$imgId; w=$imgData.w; h=$imgData.h }
+                        }
+                    }
+                    if ($imageObjects.ContainsKey($logoPath)) {
+                        $logoInfo = $imageObjects[$logoPath]
+                        $logoDrawW = ([Math]::Min($baseW, $baseH) * $logoScale / 100) * $scale
+                        $logoX = (($baseW + $quiet * 2 + $frameSize * 2) * $scale - $logoDrawW) / 2
+                        $logoY = (($baseH + $quiet * 2 + $frameSize * 2 + $textHeight) * $scale - $logoDrawW) / 2
+                        # Fondo blanco para el logo
+                        [void]$contentSb.AppendLine("$bgColorPdf rg $(ToDot $logoX) $(ToDot $logoY) $(ToDot $logoDrawW) $(ToDot $logoDrawW) re f")
+                    }
+                }
+
+                $hasGradient = (-not [string]::IsNullOrEmpty($foregroundColor2)) -and ($gradType -ne "none")
+                if (-not $hasGradient) {
+                    [void]$contentSb.AppendLine("$fgColorPdf rg")
+                }
+
                 $rSize = [double]$rounded * $scale
                 $kappa = 0.552284749831
                 for ($row = 0; $row -lt $baseH; $row++) {
                     for ($col = 0; $col -lt $baseW; $col++) {
                         if ((GetM $m $row $col) -eq 1) {
+                            if ($hasGradient) {
+                                $ratio = 0
+                                if ($gradType -eq "radial") {
+                                    $dist = [Math]::Sqrt([Math]::Pow($col - ($baseW/2), 2) + [Math]::Pow($row - ($baseH/2), 2))
+                                    $maxDist = [Math]::Sqrt([Math]::Pow($baseW/2, 2) + [Math]::Pow($baseH/2, 2))
+                                    $ratio = [Math]::Min(1.0, $dist / $maxDist)
+                                } else {
+                                    # Linear diagonal
+                                    $ratio = ($col + $row) / ($baseW + $baseH)
+                                }
+                                $modColor = &$GetGradientColor $foregroundColor $foregroundColor2 $ratio
+                                [void]$contentSb.AppendLine("$modColor rg")
+                            }
+
                             $x = ($col + $quiet + $frameSize) * $scale
                             $y = ($itemH - ($row + $quiet + $frameSize + 1) * $scale)
+                            
+                            # Evitar dibujar módulos bajo el logo
+                            if ($logoInfo) {
+                                $logoX = (($baseW + $quiet * 2 + $frameSize * 2) * $scale - $logoDrawW) / 2
+                                $logoY = (($baseH + $quiet * 2 + $frameSize * 2 + $textHeight) * $scale - $logoDrawW) / 2
+                                if ($x -ge $logoX -and $x -lt ($logoX + $logoDrawW) -and $y -ge $logoY -and $y -lt ($logoY + $logoDrawW)) { continue }
+                            }
+
                             if ($rounded -gt 0) {
                                 $rV = [Math]::Min($rSize, $scale / 2)
                                 $k = $rV * $kappa
@@ -3025,6 +3104,16 @@ function ExportPdfMultiNative {
                     }
                     [void]$contentSb.AppendLine("ET")
                 }
+
+                # Dibujar Logo si existe
+                if ($logoInfo) {
+                    $imgName = "Logo$($logoInfo.id)"
+                    $xObjects[$imgName] = $logoInfo.id
+                    $logoX = (($baseW + $quiet * 2 + $frameSize * 2) * $scale - $logoDrawW) / 2
+                    $logoY = (($baseH + $quiet * 2 + $frameSize * 2 + $textHeight) * $scale - $logoDrawW) / 2
+                    [void]$contentSb.AppendLine("q $(ToDot $logoDrawW) 0 0 $(ToDot $logoDrawW) $(ToDot $logoX) $(ToDot $logoY) cm /$imgName Do Q")
+                }
+
                 [void]$contentSb.AppendLine("Q")
             }
         }
@@ -3076,202 +3165,6 @@ function ExportPdfMultiNative {
     $bw.Close(); $fs.Close()
 }
 
-function ExportPdfNative {
-    param(
-        $m,
-        $path,
-        $scale,
-        $quiet,
-        [string]$foregroundColor = "#000000",
-        [string]$backgroundColor = "#ffffff",
-        [string[]]$bottomText = @(),
-        [double]$rounded = 0,
-        [string]$frameText = "",
-        [string]$frameColor = ""
-    )
-
-    $baseW = if ($null -ne $m.Width) { $m.Width } else { $m.Size }
-    $baseH = if ($null -ne $m.Height) { $m.Height } else { $m.Size }
-    
-    # Calcular Frame
-    $frameSize = 0
-    if ($frameText) { $frameSize = 4 }
-    
-    $wUnits = $baseW + ($quiet * 2) + ($frameSize * 2)
-    $hUnits = $baseH + ($quiet * 2) + ($frameSize * 2)
-    
-    # Texto inferior - Soporte multi-línea con \n
-    $allLines = @()
-    if ($bottomText.Count -gt 0) {
-        foreach ($item in $bottomText) {
-            if ([string]::IsNullOrEmpty($item)) { continue }
-            $subLines = $item -split "\\n"
-            foreach ($sl in $subLines) {
-                if (-not [string]::IsNullOrEmpty($sl)) { $allLines += $sl }
-            }
-        }
-    }
-
-    $textHeight = 0
-    if ($allLines.Count -gt 0) {
-        $textHeight = ($allLines.Count * 3) + 1
-    }
-    $hTotalUnits = $hUnits + $textHeight
-
-    $pdfW = $wUnits * $scale
-    $pdfH = $hTotalUnits * $scale
-
-    $fs = [System.IO.FileStream]::new($path, [System.IO.FileMode]::Create)
-    $bw = [System.IO.BinaryWriter]::new($fs)
-    
-    $objOffsets = New-Object System.Collections.Generic.List[long]
-    $WriteStr = { param($s) $bytes = [System.Text.Encoding]::ASCII.GetBytes($s); $bw.Write($bytes) }
-
-    # Header
-    &$WriteStr "%PDF-1.4`n"
-
-    $StartObj = {
-        $objOffsets.Add($fs.Position)
-        &$WriteStr "$($objOffsets.Count) 0 obj`n"
-    }
-
-    # 1. Catalog
-    &$StartObj
-    &$WriteStr "<< /Type /Catalog /Pages 2 0 R >>`nendobj`n"
-
-    # 2. Pages
-    &$StartObj
-    &$WriteStr "<< /Type /Pages /Kids [3 0 R] /Count 1 >>`nendobj`n"
-
-    # 3. Page
-    &$StartObj
-    &$WriteStr "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $(ToDot $pdfW) $(ToDot $pdfH)] /Contents 4 0 R /Resources 5 0 R >>`nendobj`n"
-
-    # 4. Contents
-    $contentSb = New-Object System.Text.StringBuilder
-    
-    $EscapePdfString = {
-        param($s)
-        if ([string]::IsNullOrEmpty($s)) { return "" }
-        return $s.Replace('\', '\\').Replace('(', '\(').Replace(')', '\)')
-    }
-
-    $ToPdfColor = {
-        param($hex)
-        if ([string]::IsNullOrEmpty($hex)) { return "0 0 0" }
-        $hex = $hex.Replace("#", "")
-        if ($hex.Length -eq 3) {
-            $r = [Convert]::ToInt32($hex.Substring(0, 1) * 2, 16) / 255.0
-            $g = [Convert]::ToInt32($hex.Substring(1, 1) * 2, 16) / 255.0
-            $b = [Convert]::ToInt32($hex.Substring(2, 1) * 2, 16) / 255.0
-        } else {
-            $r = [Convert]::ToInt32($hex.Substring(0, 2), 16) / 255.0
-            $g = [Convert]::ToInt32($hex.Substring(2, 2), 16) / 255.0
-            $b = [Convert]::ToInt32($hex.Substring(4, 2), 16) / 255.0
-        }
-        return "$(ToDot $r) $(ToDot $g) $(ToDot $b)"
-    }
-
-    $fgColorPdf = &$ToPdfColor $foregroundColor
-    $bgColorPdf = &$ToPdfColor $backgroundColor
-    $fColorPdf = if ($frameColor) { &$ToPdfColor $frameColor } else { $fgColorPdf }
-
-    # Fondo Total
-    [void]$contentSb.AppendLine("$bgColorPdf rg 0 0 $(ToDot $pdfW) $(ToDot $pdfH) re f")
-
-    # Marco Decorativo
-    if ($frameText) {
-        $frameH = ($baseH + ($quiet * 2) + ($frameSize * 2)) * $scale
-        [void]$contentSb.AppendLine("$fColorPdf rg 0 $(ToDot ($pdfH - $frameH)) $(ToDot $pdfW) $(ToDot $frameH) re f")
-        # Hueco blanco para el QR
-        [void]$contentSb.AppendLine("$bgColorPdf rg $(ToDot ($frameSize * $scale)) $(ToDot (($frameSize + $textHeight) * $scale)) $(ToDot (($baseW + $quiet * 2) * $scale)) $(ToDot (($baseH + $quiet * 2) * $scale)) re f")
-        
-        # Texto del marco
-        [void]$contentSb.AppendLine("BT /F1 $(ToDot ($frameSize * 0.6 * $scale)) Tf $bgColorPdf rg")
-        $fTextEscaped = &$EscapePdfString $frameText
-        $fTextW = $frameText.Length * ($frameSize * 0.4 * $scale)
-        $fTextX = ($pdfW - $fTextW) / 2
-        $fTextY = $pdfH - ($frameSize * 0.7 * $scale)
-        [void]$contentSb.AppendLine("1 0 0 1 $(ToDot $fTextX) $(ToDot $fTextY) Tm ($fTextEscaped) Tj ET")
-    }
-
-    # QR Modules
-    [void]$contentSb.AppendLine("$fgColorPdf rg")
-    $rSize = [double]$rounded * $scale
-    $kappa = 0.552284749831
-    
-    for ($r = 0; $r -lt $baseH; $r++) {
-        for ($c = 0; $c -lt $baseW; $c++) {
-            if ((GetM $m $r $c) -eq 1) {
-                $x = ($c + $quiet + $frameSize) * $scale
-                $y = ($hTotalUnits - ($r + $quiet + $frameSize + 1)) * $scale
-                $S = $scale
-                
-                if ([double]$rounded -gt 0 -and $rSize -gt 0) {
-                    $rV = $rSize
-                    if ($rV -gt ($S / 2)) { $rV = $S / 2 }
-                    $k = $rV * $kappa
-                    
-                    # Dibujar rectángulo redondeado con curvas de Bézier
-                    [void]$contentSb.AppendLine("$(ToDot ($x + $rV)) $(ToDot $y) m")
-                    [void]$contentSb.AppendLine("$(ToDot ($x + $S - $rV)) $(ToDot $y) l")
-                    [void]$contentSb.AppendLine("$(ToDot ($x + $S - $rV + $k)) $(ToDot $y) $(ToDot ($x + $S)) $(ToDot ($y + $rV - $k)) $(ToDot ($x + $S)) $(ToDot ($y + $rV)) c")
-                    [void]$contentSb.AppendLine("$(ToDot ($x + $S)) $(ToDot ($y + $S - $rV)) l")
-                    [void]$contentSb.AppendLine("$(ToDot ($x + $S)) $(ToDot ($y + $S - $rV + $k)) $(ToDot ($x + $S - $rV + $k)) $(ToDot ($y + $S)) $(ToDot ($x + $S - $rV)) $(ToDot ($y + $S)) c")
-                    [void]$contentSb.AppendLine("$(ToDot ($x + $rV)) $(ToDot ($y + $S)) l")
-                    [void]$contentSb.AppendLine("$(ToDot ($x + $rV - $k)) $(ToDot ($y + $S)) $(ToDot $x) $(ToDot ($y + $S - $rV + $k)) $(ToDot $x) $(ToDot ($y + $S - $rV)) c")
-                    [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot ($y + $rV)) l")
-                    [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot ($y + $rV - $k)) $(ToDot ($x + $rV - $k)) $(ToDot $y) $(ToDot ($x + $rV)) $(ToDot $y) c")
-                    [void]$contentSb.AppendLine("f")
-                } else {
-                    [void]$contentSb.AppendLine("$(ToDot $x) $(ToDot $y) $(ToDot $scale) $(ToDot $scale) re f")
-                }
-            }
-        }
-    }
-
-    # Texto (si hay) - Usando Helvetica básica
-    if ($allLines.Count -gt 0) {
-        [void]$contentSb.AppendLine("BT /F1 $(ToDot ($scale * 2)) Tf")
-        $currentY = ($textHeight - 2) * $scale
-        foreach ($line in $allLines) {
-            # Centrado: Helvetica tiene un ancho aproximado de 0.6 * size
-            $textW = $line.Length * ($scale * 2 * 0.55)
-            $startX = ($pdfW - $textW) / 2
-            if ($startX -lt 0) { $startX = 0 }
-            $escapedLine = &$EscapePdfString $line
-            [void]$contentSb.AppendLine("1 0 0 1 $(ToDot $startX) $(ToDot $currentY) Tm ($escapedLine) Tj")
-            $currentY -= ($scale * 3)
-        }
-        [void]$contentSb.AppendLine("ET")
-    }
-
-    # Usar Windows-1252 (Encoding 1252) que es compatible con WinAnsiEncoding de PDF
-    # Esto permite tildes y eñes en la mayoría de los visores de PDF con fuentes base
-    $enc = [System.Text.Encoding]::GetEncoding(1252)
-    $contentBytes = $enc.GetBytes($contentSb.ToString())
-    &$StartObj
-    &$WriteStr "<< /Length $($contentBytes.Length) >>`nstream`n"
-    $bw.Write($contentBytes)
-    &$WriteStr "`nendstream`nendobj`n"
-
-    # 5. Resources (Font and ProcSet)
-    &$StartObj
-    &$WriteStr "<< /ProcSet [/PDF /Text] /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> >> >>`nendobj`n"
-
-    # xref
-    $xrefPos = $fs.Position
-    &$WriteStr "xref`n0 $($objOffsets.Count + 1)`n0000000000 65535 f `n"
-    foreach ($off in $objOffsets) {
-        &$WriteStr ("{0:0000000000} 00000 n `n" -f $off)
-    }
-
-    # trailer
-    &$WriteStr "trailer`n<< /Size $($objOffsets.Count + 1) /Root 1 0 R >>`nstartxref`n$xrefPos`n%%EOF"
-
-    $bw.Close()
-    $fs.Close()
-}
 
 function ExportPdf {
     param(
@@ -3292,107 +3185,34 @@ function ExportPdf {
         [string]$fontFamily = "Arial, sans-serif",
         [string]$googleFont = ""
     )
-    # Intentar exportación nativa si no hay características complejas
-    if ([string]::IsNullOrEmpty($logoPath) -and [string]::IsNullOrEmpty($foregroundColor2)) {
-        try {
-            ExportPdfNative -m $m -path $path -scale $scale -quiet $quiet -foregroundColor $foregroundColor -backgroundColor $backgroundColor -bottomText $bottomText -rounded $rounded -frameText $frameText -frameColor $frameColor
-            if (Test-Path $path) {
-                Write-Status "[OK] PDF nativo generado exitosamente en: $path"
-                return
-            }
-        } catch {
-            Write-Warning "Fallo en exportación nativa: $_. Cayendo a método Edge."
-        }
-    }
 
-    # Generar contenido SVG (respaldo o para características complejas)
-    $tempSvg = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".svg")
-    $tempHtml = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".html")
-    
-    # Exportar SVG con todos los parámetros
-    if ($null -ne $m.Width) {
-        ExportSvgRect -m $m -path $tempSvg -scale $scale -quiet $quiet -logoPath $logoPath -logoScale $logoScale -bottomText $bottomText -foregroundColor $foregroundColor -foregroundColor2 $foregroundColor2 -backgroundColor $backgroundColor -rounded $rounded -gradientType $gradientType -frameText $frameText -frameColor $frameColor -fontFamily $fontFamily -googleFont $googleFont
-    } else {
-        ExportSvg -m $m -path $tempSvg -scale $scale -quiet $quiet -logoPath $logoPath -logoScale $logoScale -bottomText $bottomText -foregroundColor $foregroundColor -foregroundColor2 $foregroundColor2 -backgroundColor $backgroundColor -rounded $rounded -gradientType $gradientType -frameText $frameText -frameColor $frameColor -fontFamily $fontFamily -googleFont $googleFont
-    }
-
-    if (-not (Test-Path $tempSvg)) { throw "No se pudo generar el SVG temporal para el PDF." }
-    $svgContent = Get-Content $tempSvg -Raw
-    
-    # Extraer dimensiones reales del SVG generado
-    [xml]$svgXml = $svgContent
-    $widthPx = FromDot $svgXml.svg.width
-    $heightPx = FromDot $svgXml.svg.height
-
-    # Crear un HTML temporal que ajusta el tamaño de la página al tamaño exacto del QR
-    # @page { size: width height; } ajusta el papel al contenido
-    $htmlContent = @"
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-    @page { 
-        margin: 0; 
-        size: $(ToDot $widthPx)px $(ToDot $heightPx)px; 
-    }
-    body { 
-        margin: 0; 
-        padding: 0;
-        overflow: hidden;
-        background: white;
-    }
-    svg { 
-        width: $(ToDot $widthPx)px; 
-        height: $(ToDot $heightPx)px; 
-        display: block;
-    }
-</style>
-</head>
-<body>
-    $svgContent
-</body>
-</html>
-"@
-    Set-Content -Path $tempHtml -Value $htmlContent -Encoding UTF8
-
+    # Usar el motor nativo multi-página para generar un PDF de una sola página
+    # Esto unifica la lógica y permite soporte nativo de logos
     try {
-        $edgePaths = @(
-            "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
-            "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe"
-        )
-        $edgePath = $edgePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-        if ($edgePath) {
-            $absPath = [System.IO.Path]::GetFullPath($path)
-            $absTempHtml = [System.IO.Path]::GetFullPath($tempHtml)
-
-            $args = @(
-                "--headless",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--print-to-pdf-no-header",
-                "--no-pdf-header-footer",
-                "--print-to-pdf=""$absPath""",
-                """$absTempHtml"""
-            )
-            Start-Process -FilePath $edgePath -ArgumentList $args -Wait -WindowStyle Hidden
-            
-            if (Test-Path $absPath) {
-                Write-Status "[OK] PDF limpio (sin encabezados) generado exitosamente en: $path"
-            } else {
-                throw "Edge no pudo generar el archivo PDF."
-            }
-        } else {
-            throw "No se encontró Microsoft Edge para la conversión."
+        $pages = New-Object System.Collections.ArrayList
+        [void]$pages.Add([PSCustomObject]@{
+            type = "QR"
+            m = $m
+            scale = $scale
+            quiet = $quiet
+            fg = $foregroundColor
+            fg2 = $foregroundColor2
+            bg = $backgroundColor
+            gradType = $gradientType
+            text = $bottomText
+            rounded = $rounded
+            frame = $frameText
+            frameColor = $frameColor
+            logoPath = $logoPath
+            logoScale = $logoScale
+        })
+        ExportPdfMultiNative -pages $pages -path $path -layout "Default"
+        if (Test-Path $path) {
+            Write-Status "[OK] PDF nativo generado exitosamente en: $path"
+            return
         }
     } catch {
-        Write-Warning "No se pudo convertir a PDF: $_. Usando respaldo."
-        if (Test-Path $tempSvg) {
-            Move-Item -Path $tempSvg -Destination $path -Force
-        }
-    } finally {
-        if (Test-Path $tempSvg) { Remove-Item $tempSvg -ErrorAction SilentlyContinue }
-        if (Test-Path $tempHtml) { Remove-Item $tempHtml -ErrorAction SilentlyContinue }
+        Write-Warning "Fallo en exportación nativa: $_."
     }
 }
 
@@ -4577,38 +4397,36 @@ function Start-BatchProcessing {
         foreach ($fmt in $formats) {
             if ($fmt -eq "pdf" -and $pdfUnico) {
                 try {
-                    # Recolectar parámetros para generación posterior (Nativa o Edge)
-                    $collectedPages += [PSCustomObject]@{
-                        data = $dataToEncode
-                        ecLevel = $ecLevel
-                        version = $version
-                        modSize = $modSize
-                        eciVal = $eciVal
-                        rowSymbol = $rowSymbol
-                        rowModel = $rowModel
-                        rowMicroVersion = $rowMicroVersion
-                        fnc1First = $Fnc1First
-                        fnc1Second = $Fnc1Second
-                        fnc1AppInd = $Fnc1ApplicationIndicator
-                        saIndex = $StructuredAppendIndex
-                        saTotal = $StructuredAppendTotal
-                        saParity = $StructuredAppendParity
-                        saParityData = $StructuredAppendParityData
-                        rowLogo = $rowLogo
-                        logoScale = $logoScaleIni
-                        bottomText = $bottomText
-                        rowFg = $rowFg
-                        rowFg2 = $rowFg2
-                        rowBg = $rowBg
-                        rowRounded = $rowRounded
-                        gradType = $gradTypeIni
-                        rowFrame = $rowFrame
-                        frameColor = $rowFrameColor
-                        fontFamily = $fontFamilyIni
-                        googleFont = $googleFontIni
-                        # Flag de características complejas
-                        needsEdge = ($rowLogo -ne "") -or ($gradTypeIni -ne "none" -and $rowFg2 -ne "")
-                    }
+                        # Parámetros para generación posterior
+                        $collectedPages += [PSCustomObject]@{
+                            data = $dataToEncode
+                            ecLevel = $ecLevel
+                            version = $version
+                            modSize = $modSize
+                            eciVal = $eciVal
+                            rowSymbol = $rowSymbol
+                            rowModel = $rowModel
+                            rowMicroVersion = $rowMicroVersion
+                            fnc1First = $Fnc1First
+                            fnc1Second = $Fnc1Second
+                            fnc1AppInd = $Fnc1ApplicationIndicator
+                            saIndex = $StructuredAppendIndex
+                            saTotal = $StructuredAppendTotal
+                            saParity = $StructuredAppendParity
+                            saParityData = $StructuredAppendParityData
+                            rowLogo = $rowLogo
+                            logoScale = $logoScaleIni
+                            bottomText = $bottomText
+                            rowFg = $rowFg
+                            rowFg2 = $rowFg2
+                            rowBg = $rowBg
+                            rowRounded = $rowRounded
+                            gradType = $gradTypeIni
+                            rowFrame = $rowFrame
+                            frameColor = $rowFrameColor
+                            fontFamily = $fontFamilyIni
+                            googleFont = $googleFontIni
+                        }
                 } catch {
                     Write-Error "Error recolectando datos para pÃ¡gina PDF '$dataToEncode': $_"
                 }
@@ -4635,103 +4453,35 @@ function Start-BatchProcessing {
         $count++
     }
     
-    # Generar PDF Ãnico si hay pÃ¡ginas recolectadas
+    # Generar PDF Único si hay páginas recolectadas
     if ($collectedPages.Count -gt 0) {
-        $anyEdge = ($collectedPages | Where-Object { $_.needsEdge }).Count -gt 0
         $finalPdfPath = Join-Path $outPath $pdfUnicoNombre
-
-        if (-not $anyEdge) {
-            Write-Status "`nGenerando PDF Ãnico Nativo de $($collectedPages.Count) pÃ¡ginas..."
-            $pagesForNative = New-Object System.Collections.ArrayList
-            foreach ($p in $collectedPages) {
-                # Obtener la matriz llamando a New-QRCode (sin exportar a archivo)
-                $m = New-QRCode -Data $p.data -OutputPath $null -ECLevel $p.ecLevel -Version $p.version -ModuleSize $p.modSize -EciValue $p.eciVal -Symbol $p.rowSymbol -Model $p.rowModel -MicroVersion $p.rowMicroVersion -Fnc1First:$p.fnc1First -Fnc1Second:$p.fnc1Second -Fnc1ApplicationIndicator $p.fnc1AppInd -StructuredAppendIndex $p.saIndex -StructuredAppendTotal $p.saTotal -StructuredAppendParity $p.saParity -StructuredAppendParityData $p.saParityData
-                
-                [void]$pagesForNative.Add([PSCustomObject]@{
-                    m = $m
-                    scale = $p.modSize
-                    quiet = 4
-                    fg = $p.rowFg
-                    bg = $p.rowBg
-                    text = $p.bottomText
-                    rounded = $p.rowRounded
-                    frame = $p.rowFrame
-                    frameColor = $p.frameColor
-                })
-            }
-            ExportPdfMultiNative -pages $pagesForNative -path $finalPdfPath -layout $pdfLayout
-            Write-Status "[OK] PDF único nativo generado exitosamente en: $finalPdfPath"
-        } else {
-            Write-Status "`nGenerando PDF Ãnico vía Edge de $($collectedPages.Count) pÃ¡ginas (requerido por logos/degradados)..."
-            $tempHtml = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".html")
+        Write-Status "`nGenerando PDF Único Nativo de $($collectedPages.Count) páginas..."
+        
+        $pagesForNative = New-Object System.Collections.ArrayList
+        foreach ($p in $collectedPages) {
+            # Obtener la matriz llamando a New-QRCode (sin exportar a archivo)
+            $m = New-QRCode -Data $p.data -OutputPath $null -ECLevel $p.ecLevel -Version $p.version -ModuleSize $p.modSize -EciValue $p.eciVal -Symbol $p.rowSymbol -Model $p.rowModel -MicroVersion $p.rowMicroVersion -Fnc1First:$p.fnc1First -Fnc1Second:$p.fnc1Second -Fnc1ApplicationIndicator $p.fnc1AppInd -StructuredAppendIndex $p.saIndex -StructuredAppendTotal $p.saTotal -StructuredAppendParity $p.saParity -StructuredAppendParityData $p.saParityData
             
-            # Generar SVGs temporales y recolectar dimensiones
-            $pagesForEdge = @()
-            foreach ($p in $collectedPages) {
-                $tempSvg = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString() + ".svg")
-                New-QRCode -Data $p.data -OutputPath $tempSvg -ECLevel $p.ecLevel -Version $p.version -ModuleSize $p.modSize -EciValue $p.eciVal -Symbol $p.rowSymbol -Model $p.rowModel -MicroVersion $p.rowMicroVersion -Fnc1First:$p.fnc1First -Fnc1Second:$p.fnc1Second -Fnc1ApplicationIndicator $p.fnc1AppInd -StructuredAppendIndex $p.saIndex -StructuredAppendTotal $p.saTotal -StructuredAppendParity $p.saParity -StructuredAppendParityData $p.saParityData -LogoPath $p.rowLogo -LogoScale $p.logoScale -BottomText $p.bottomText -ForegroundColor $p.rowFg -ForegroundColor2 $p.rowFg2 -BackgroundColor $p.rowBg -Rounded $p.rowRounded -GradientType $p.gradType -FrameText $p.rowFrame -FrameColor $p.frameColor -FontFamily $p.fontFamily -GoogleFont $p.googleFont
-                
-                if (Test-Path $tempSvg) {
-                    $svgContent = Get-Content $tempSvg -Raw -Encoding UTF8
-                    [xml]$svgXml = $svgContent
-                    $widthPx = FromDot $svgXml.svg.width
-                    $heightPx = FromDot $svgXml.svg.height
-                    
-                    $pagesForEdge += [PSCustomObject]@{
-                        Svg = $svgContent
-                        Width = $widthPx
-                        Height = $heightPx
-                        TempPath = $tempSvg
-                    }
-                }
-            }
-
-            $sb = [System.Text.StringBuilder]::new()
-            [void]$sb.AppendLine("<!DOCTYPE html><html><head><meta charset='UTF-8'><style>")
-            [void]$sb.AppendLine("body { margin: 0; padding: 0; background: white; }")
-            
-            for ($i=0; $i -lt $pagesForEdge.Count; $i++) {
-                $pg = $pagesForEdge[$i]
-                [void]$sb.AppendLine("@page page$i { size: $(ToDot $pg.Width)px $(ToDot $pg.Height)px; margin: 0; }")
-                [void]$sb.AppendLine(".p$i { page: page$i; width: $(ToDot $pg.Width)px; height: $(ToDot $pg.Height)px; page-break-after: always; display: block; line-height: 0; font-size: 0; }")
-                [void]$sb.AppendLine(".p$i svg { display: block; width: 100%; height: 100%; }")
-            }
-            [void]$sb.AppendLine("</style>")
-            
-            # Google Fonts (usar el del primer QR que tenga)
-            $gf = ($collectedPages | Where-Object { -not [string]::IsNullOrEmpty($_.googleFont) } | Select-Object -First 1).googleFont
-            if ($gf) {
-                $fontUrl = if ($gf -match "^http") { $gf } else { "https://fonts.googleapis.com/css2?family=$($gf.Replace(' ', '+'))" }
-                [void]$sb.AppendLine("<link href='$fontUrl' rel='stylesheet'>")
-            }
-            
-            [void]$sb.AppendLine("</head><body>")
-            for ($i=0; $i -lt $pagesForEdge.Count; $i++) {
-                $pg = $pagesForEdge[$i]
-                $cleanSvg = $pg.Svg -replace '<\?xml.*?\?>', '' -replace '<!DOCTYPE.*?>', ''
-                [void]$sb.AppendLine("<div class='p$i'>$cleanSvg</div>")
-            }
-            [void]$sb.AppendLine("</body></html>")
-            
-            Set-Content -Path $tempHtml -Value $sb.ToString() -Encoding UTF8
-            
-            $edgePath = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-            if (-not (Test-Path $edgePath)) { $edgePath = "C:\Program Files\Microsoft\Edge\Application\msedge.exe" }
-            
-            if (Test-Path $edgePath) {
-                $process = Start-Process -FilePath $edgePath -ArgumentList "--headless", "--disable-gpu", "--print-to-pdf=$finalPdfPath", "--no-margins", "file://$($tempHtml)" -PassThru -Wait
-                if ($process.ExitCode -ne 0) {
-                    Write-Error "Microsoft Edge fallÃ³ al generar el PDF Ãºnico. CÃ³digo: $($process.ExitCode)"
-                } else {
-                    Write-Status "[OK] PDF Ãºnico generado exitosamente en: $finalPdfPath"
-                }
-            } else {
-                Write-Error "No se encontrÃ³ Microsoft Edge para generar el PDF Ãºnico."
-            }
-            
-            if (Test-Path $tempHtml) { Remove-Item $tempHtml -Force }
-            foreach ($pg in $pagesForEdge) { if (Test-Path $pg.TempPath) { Remove-Item $pg.TempPath -Force } }
+            [void]$pagesForNative.Add([PSCustomObject]@{
+                type = "QR"
+                m = $m
+                scale = $p.modSize
+                quiet = 4
+                fg = $p.rowFg
+                fg2 = $p.rowFg2
+                bg = $p.rowBg
+                gradType = $p.gradType
+                text = $p.bottomText
+                rounded = $p.rowRounded
+                frame = $p.rowFrame
+                frameColor = $p.frameColor
+                logoPath = $p.rowLogo
+                logoScale = $p.logoScale
+            })
         }
+        ExportPdfMultiNative -pages $pagesForNative -path $finalPdfPath -layout $pdfLayout
+        Write-Status "[OK] PDF único nativo generado exitosamente en: $finalPdfPath"
     }
     
     Write-Status "Proceso completado. QRs guardados en: $outDir"

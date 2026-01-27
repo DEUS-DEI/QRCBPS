@@ -49,8 +49,8 @@ El motor implementa la totalidad de los anexos técnicos del estándar:
 ### 🛠️ Características Técnicas
 - **Segmentación Inteligente**: Alterna automáticamente entre modos Numérico, Alfanumérico, Byte (UTF-8) y Kanji (Shift-JIS).
 - **Corrección de Errores (ECC)**: Implementación completa de Reed-Solomon (GF 256) niveles L, M, Q, H.
-- **Exportación PDF Nativa (Puro PowerShell)**: Generación directa de archivos PDF binarios sin dependencias externas (sin necesidad de Microsoft Edge para funciones core). Soporta vectores limpios para módulos (cuadrados o redondeados), marcos decorativos y múltiples líneas de texto con soporte total para caracteres especiales (ñ, á, é, etc.).
-- **Fallback Inteligente**: Solo utiliza Microsoft Edge como motor de renderizado cuando se requieren funciones ultra-complejas como la incrustación de logos SVG externos o degradados de color avanzados, manteniendo la portabilidad máxima en el resto de los casos.
+- **Exportación PDF Nativa (Puro PowerShell)**: Generación directa de archivos PDF binarios sin dependencias externas (sin necesidad de Microsoft Edge). Soporta vectores limpios, marcos decorativos, múltiples líneas de texto, incrustación de logos (PNG/JPG) y degradados (lineales/radiales) con soporte total para caracteres especiales (ñ, á, é, etc.).
+- **Layouts y Conversión de Imágenes**: Sistema de rejillas (Grid 4x4, 4x5, 6x6) para catálogos automáticos y conversor integrado de carpetas de imágenes a PDF manteniendo el aspecto original.
 - **Texto Inferior y Etiquetas**: Soporte para múltiples líneas de texto debajo del QR. En procesamiento por lotes, detecta automáticamente columnas `Label1` a `Label5` y soporta el carácter `\n` para saltos de línea manuales con centrado dinámico e independiente por línea.
 - **Marcos Decorativos (Frames)**: Capacidad de añadir un marco sólido con texto personalizado (ej: "ESCANEAME") en la parte superior, ideal para llamadas a la acción.
 - **Personalización Estética**: Soporte para colores sólidos, degradados (lineales y radiales), módulos redondeados y máscaras automáticas para logos.
