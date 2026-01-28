@@ -195,16 +195,25 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 - **⚡ Rendimiento**:
   - **Procesamiento en Paralelo**: ✅ Implementado mediante `RunspacePool` para máxima eficiencia en lotes.
   - **Caché de Símbolos**: ✅ Implementado mediante reutilización de matrices de patrones fijos y máscaras pre-calculadas.
+  - **Optimización de Matriz**: Migración de Hashtables a arrays 1D para reducir memoria y ganar velocidad.
+  - **Optimización SVG**: Agrupación de módulos en un solo `<path>` para reducir el tamaño del archivo.
+  - **Compresión PDF**: Implementación de filtro `/FlateDecode` en streams de contenido nativos.
 - **🏗️ Arquitectura**:
   - **Modularización (PSM1)**: Conversión a módulo formal para facilitar la distribución.
   - **Generación Directa de Lenguajes de Impresión**: Implementación de conversores a **ZPL (Zebra)** y **ESC/POS**.
+  - **Robustez**: Implementación de `Set-StrictMode` y tipado estricto de .NET.
+  - **Pruebas Unitarias**: Suite de validación automatizada con **Pester**.
 - **🛡️ Seguridad y Datos**:
   - **Firmas Digitales (ECDSA)**: ✅ Implementado utilizando .NET nativo (`System.Security.Cryptography`).
   - **Compresión de Datos**: ✅ Implementado algoritmos de compresión por diccionario para QR V40.
   - **Nuevos Formatos**: ✅ Soporte para Geo-localización, vEvent y Cripto-direcciones.
-- **🎨 Estética**:
+  - **Validación Semántica**: Verificación estricta de formatos (IBAN, vCard, EPC).
+  - **Auto-split**: Fragmentación automática de datos mediante Structured Append.
+  - **Externalización GS1**: Gestión de identificadores de aplicación mediante archivo JSON externo.
+- **🎨 Estética y UX**:
   - **Redondeado Avanzado y Formas**: ✅ Implementado uso de `GraphicsPath` para módulos geométricos variados.
   - **Optimización E-Ink**: ✅ Implementado perfiles de alto contraste y desactivación de anti-aliasing.
+  - **Logging Estándar**: Transición a `Write-Verbose` y `Write-Debug` para mejor integración en scripts.
 
 ### 🌐 Integraciones y Sistemas Externos
 *Estas capacidades requieren servicios adicionales, contenedores o librerías de terceros.*
