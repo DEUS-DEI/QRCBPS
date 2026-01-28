@@ -61,7 +61,37 @@ El motor implementa la totalidad de los anexos técnicos del estándar:
 
 ---
 
-## 💾 Formatos de Imagen y Compresión
+## 📄 Cumplimiento de Estándares PDF
+
+El motor de exportación PDF de `qrps` es una implementación binaria nativa diseñada para cumplir con los estándares de archivo y accesibilidad más exigentes sin dependencias de terceros.
+
+### 🏛️ Estándares Base e ISO
+| Estándar | Descripción | Estado | Notas Técnicas |
+| :--- | :--- | :---: | :--- |
+| **ISO 32000-1:2008** | PDF 1.7 | ✅ | Estándar base de la arquitectura del motor. |
+| **ISO 19005-2** | PDF/A-2b (Archivo) | ✅ | Cumplimiento de preservación visual a largo plazo. |
+| **ISO 14289-1** | PDF/UA-1 (Accesibilidad) | ✅ | Estructura lógica (`StructTreeRoot`) y etiquetas de figura. |
+| **ISO 16684-1** | XMP (Metadatos) | ✅ | Inclusión de esquemas Dublin Core y PDF/A-ID. |
+| **ISO 32000-1 Anexo G** | PDF Linearizado | 🟡 | Estructura presente para "Fast Web View" (optimización básica). |
+| **ISO 10646** | Unicode (ToUnicode) | ✅ | Mapeo CMap para garantizar extracción de texto correcta. |
+| **ICC.1:2022** | Perfiles de Color sRGB | ✅ | Perfil de color incrustado para consistencia cromática. |
+
+### 🛠️ Detalles de Implementación (Anexos ISO 32000-1)
+- **Anexo A (Gráficos)**: Soporte completo de operadores de trazado (rect, fill, stroke).
+- **Anexo E (Coordenadas)**: Uso estricto del sistema de coordenadas de usuario PDF.
+- **Anexo K (Tagged PDF)**: Implementación de contenido marcado (`BDC`/`EMC`) y árbol de estructura.
+
+### ⚠️ Limitaciones y No Implementados (Razones Técnicas)
+| Estándar | Estado | Razón Técnica |
+| :--- | :---: | :--- |
+| **ISO 32000-2:2020 (PDF 2.0)** | ❌ | Requiere cambios en el manejo de namespaces y cifrado no críticos para QR. |
+| **ISO 32000-1 Anexo B (Compresión)** | ❌ | Los flujos se mantienen sin comprimir para maximizar la velocidad en PowerShell. |
+| **ISO 32000-1 Anexo C (Cifrado)** | ❌ | Implementar AES/RC4 de forma nativa en PS sin DLLs externas compromete la portabilidad. |
+| **ISO 32000-1 Anexo I (JavaScript)** | ❌ | Excluido por diseño para garantizar la seguridad del documento. |
+| **ISO 15930 (PDF/X)** | ❌ | Orientado a pre-prensa profesional; requiere gestión de color CMYK avanzada. |
+| **ETSI PAdES / Firmas** | ❌ | Requiere infraestructura de clave pública (PKI) compleja para una implementación nativa. |
+
+---
 
 | Formato | Estado | Tipo | Recomendación |
 | :--- | :---: | :--- | :--- |
@@ -126,7 +156,7 @@ El archivo `config.ini` permite automatizar el comportamiento del motor. Soporta
 
 ### Lanzador Fácil (Recomendado)
 Si prefieres no usar la línea de comandos de PowerShell, puedes usar el lanzador interactivo:
-- Ejecuta **[run_qrps.bat](file:///c:/Users/kgrb/Documents/GitHUb/qrps/run_qrps.bat)** para acceder al menú simplificado:
+- Ejecuta **run_qrps.bat** para acceder al menú simplificado:
   1. Procesamiento por lotes (usando `config.ini`).
   2. Generación rápida (texto manual + opción de logo).
   3. Decodificación de archivos.
@@ -274,10 +304,10 @@ Para garantizar el cumplimiento de los estándares ISO tras cualquier modificaci
 
 | Script | Propósito | Cobertura |
 | :--- | :--- | :--- |
-| **[verify_decoding.ps1](file:///c:/Users/kgrb/Documents/GitHUb/qrps/verify_decoding.ps1)** | Validación de Algoritmos | Prueba Reed-Solomon, corrección de errores y decodificación interna. |
-| **[verify_file_decoding.ps1](file:///c:/Users/kgrb/Documents/GitHUb/qrps/verify_file_decoding.ps1)** | Integración de Archivos | Valida el ciclo completo de exportación y lectura de PNG/SVG. |
-| **[test_rmqr.ps1](file:///c:/Users/kgrb/Documents/GitHUb/qrps/test_rmqr.ps1)** | Simbología rMQR | Valida las 27 versiones rectangulares y su decodificación. |
-| **[test_sa.ps1](file:///c:/Users/kgrb/Documents/GitHUb/qrps/test_sa.ps1)** | Structured Append | Verifica la división de datos y el cálculo de paridad ISO 15434. |
+| **verify_decoding.ps1** | Validación de Algoritmos | Prueba Reed-Solomon, corrección de errores y decodificación interna. |
+| **verify_file_decoding.ps1** | Integración de Archivos | Valida el ciclo completo de exportación y lectura de PNG/SVG. |
+| **test_rmqr.ps1** | Simbología rMQR | Valida las 27 versiones rectangulares y su decodificación. |
+| **test_sa.ps1** | Structured Append | Verifica la división de datos y el cálculo de paridad ISO 15434. |
 
 ### Análisis Estático (Lint & Typecheck)
 
