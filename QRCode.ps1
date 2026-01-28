@@ -1062,6 +1062,54 @@ function MicroEncode($txt, $ver, $ec, $mode) {
     return ,$bits
 }
 
+$script:QR_DICTIONARY = @(
+    "http://www.", "https://www.", "http://", "https://", "www.", ".com/", ".org/", ".net/", ".es/", ".html", 
+    "index.php", "?id=", "&id=", "BEGIN:VCARD", "VERSION:3.0", "VERSION:4.0", "FN:", "N:", "TEL;TYPE=CELL:", 
+    "TEL;TYPE=WORK:", "EMAIL:", "ADR:", "ORG:", "TITLE:", "URL:", "END:VCARD", "BEGIN:VEVENT", "SUMMARY:", 
+    "DTSTART:", "DTEND:", "LOCATION:", "DESCRIPTION:", "END:VEVENT", "WIFI:S:", "WIFI:T:WPA;", "WIFI:T:WEP;", 
+    "P:", "H:true;", "H:false;", "geo:", "bitcoin:", "ethereum:", "litecoin:", "dogecoin:", "amount=", 
+    "label=", "message=", "BCD", "002", "1", "SCT"
+)
+
+function Get-DictionaryCompressedData($txt) {
+    # Usamos el byte 0x01 como prefijo de compresión si no está presente en el texto original
+    if ($txt.Contains([char]1)) { return $txt }
+    
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.Append([char]1) # Marcador de compresión
+    
+    $i = 0
+    while ($i -lt $txt.Length) {
+        $bestMatch = -1
+        $bestLen = 0
+        
+        for ($d = 0; $d -lt $script:QR_DICTIONARY.Count; $d++) {
+            $entry = $script:QR_DICTIONARY[$d]
+            if ($i + $entry.Length -le $txt.Length) {
+                if ($txt.Substring($i, $entry.Length) -eq $entry) {
+                    if ($entry.Length -gt $bestLen) {
+                        $bestLen = $entry.Length
+                        $bestMatch = $d
+                    }
+                }
+            }
+        }
+        
+        if ($bestMatch -ne -1) {
+            # Codificar como byte con bit alto en 1 (0x80 + index)
+            [void]$sb.Append([char](0x80 + $bestMatch))
+            $i += $bestLen
+        } else {
+            [void]$sb.Append($txt[$i])
+            $i++
+        }
+    }
+    
+    $compressed = $sb.ToString()
+    if ($compressed.Length -ge $txt.Length) { return $txt }
+    return $compressed
+}
+
 function Get-Segment($txt) {
     $segs = @()
     $len = $txt.Length
@@ -3896,6 +3944,58 @@ function New-EPC {
     return $sb.ToString().TrimEnd("`r`n")
 }
 
+function New-Geo {
+    param(
+        [Parameter(Mandatory)][double]$Latitude,
+        [Parameter(Mandatory)][double]$Longitude,
+        [double]$Altitude = 0
+    )
+    # Formato: geo:lat,lon,alt
+    if ($Altitude -ne 0) {
+        return "geo:$Latitude,$Longitude,$Altitude"
+    }
+    return "geo:$Latitude,$Longitude"
+}
+
+function New-vEvent {
+    param(
+        [Parameter(Mandatory)][string]$Summary,
+        [Parameter(Mandatory)][DateTime]$Start,
+        [Parameter(Mandatory)][DateTime]$End,
+        [string]$Location = "",
+        [string]$Description = ""
+    )
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.AppendLine("BEGIN:VEVENT")
+    [void]$sb.AppendLine("SUMMARY:$Summary")
+    [void]$sb.AppendLine("DTSTART:$($Start.ToUniversalTime().ToString("yyyyMMddTHHmmssZ"))")
+    [void]$sb.AppendLine("DTEND:$($End.ToUniversalTime().ToString("yyyyMMddTHHmmssZ"))")
+    if ($Location) { [void]$sb.AppendLine("LOCATION:$Location") }
+    if ($Description) { [void]$sb.AppendLine("DESCRIPTION:$Description") }
+    [void]$sb.AppendLine("END:VEVENT")
+    return $sb.ToString().TrimEnd("`r`n")
+}
+
+function New-CryptoAddress {
+    param(
+        [Parameter(Mandatory)][ValidateSet('bitcoin','ethereum','litecoin','dogecoin')][string]$Coin,
+        [Parameter(Mandatory)][string]$Address,
+        [double]$Amount = 0,
+        [string]$Label = "",
+        [string]$Message = ""
+    )
+    $uri = "${Coin}:$Address"
+    $params = @()
+    if ($Amount -gt 0) { $params += "amount=$Amount" }
+    if ($Label) { $params += "label=$([uri]::EscapeDataString($Label))" }
+    if ($Message) { $params += "message=$([uri]::EscapeDataString($Message))" }
+    
+    if ($params.Count -gt 0) {
+        $uri += "?" + ($params -join "&")
+    }
+    return $uri
+}
+
 function New-QRCode {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -3931,7 +4031,8 @@ function New-QRCode {
     [string]$FontFamily = "Arial, sans-serif",
     [string]$GoogleFont = "",
     [string]$ModuleShape = "square",
-    [switch]$EInk
+    [switch]$EInk,
+    [switch]$Compress
     )
     
     # Perfil E-Ink: Alto contraste y sin suavizado
@@ -3941,6 +4042,12 @@ function New-QRCode {
         $BackgroundColor = "#ffffff"
         $FrameColor = "#000000"
         $ModuleShape = "square"
+    }
+    
+    # Aplicar compresión por diccionario si se solicita
+    if ($Compress) {
+        $Data = Get-DictionaryCompressedData $Data
+        Write-Status "Compresión aplicada. Nueva longitud: $($Data.Length)"
     }
     
     # Si hay logo, forzamos EC Level H para asegurar lectura
@@ -4640,7 +4747,8 @@ function Start-BatchProcessing {
         [string]$PdfUnicoNombre = "",
         [string]$Layout = "Default",
         [int]$MaxThreads = -1,
-        [switch]$EInk
+        [switch]$EInk,
+        [switch]$Compress
     )
     
     if (-not (Test-Path $IniPath) -and [string]::IsNullOrEmpty($InputFileOverride)) { 
@@ -4724,6 +4832,7 @@ function Start-BatchProcessing {
      $pdfLayout = if ($Layout -ne "Default") { $Layout } else { Get-IniValue $iniContent "QRPS" "QRPS_Layout" "Default" }
      $actualMaxThreads = if ($MaxThreads -ge 0) { $MaxThreads } else { [int](Get-IniValue $iniContent "QRPS" "QRPS_MaxThreads" "1") }
      $actualEInk = if ($EInk) { $true } else { (Get-IniValue $iniContent "QRPS" "QRPS_EInk" "no") -eq "si" }
+     $actualCompress = if ($Compress) { $true } else { (Get-IniValue $iniContent "QRPS" "QRPS_Compresion" "no") -eq "si" }
     
     # Si hay logo en config, forzamos EC Level H
     if (-not [string]::IsNullOrEmpty($logoPathIni)) {
@@ -4904,6 +5013,7 @@ function Start-BatchProcessing {
                     ForegroundColor = $rowFg
                     ForegroundColor2 = $rowFg2
                     EInk = $actualEInk
+                    Compress = $actualCompress
                     BackgroundColor = $rowBg
                     Rounded = $rowRounded
                     ModuleShape = $rowModuleShape
@@ -4939,7 +5049,7 @@ function Start-BatchProcessing {
             try {
                 if ($item.PdfUnico -and $fmt -eq "pdf") {
                     # Solo generar matriz para PDF único
-                    $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -EInk:$p.EInk
+                    $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -EInk:$p.EInk -Compress:$p.Compress -ModuleShape $p.ModuleShape
                     return @{ 
                         Index = $item.Index; 
                         Type = "PDFPage"; 
@@ -4959,12 +5069,14 @@ function Start-BatchProcessing {
                             logoPath = $p.LogoPath
                             logoScale = $p.LogoScale
                             eink = $p.EInk
+                            compress = $p.Compress
+                            moduleShape = $p.ModuleShape
                             path = $finalPath
                             originalIndex = $item.Index
                         }
                     }
                 } else {
-                    New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont -EInk:$p.EInk
+                    New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont -EInk:$p.EInk -Compress:$p.Compress -ModuleShape $p.ModuleShape
                     return @{ Index = $item.Index; Type = "File"; Path = $finalPath }
                 }
             } catch {
@@ -5017,7 +5129,7 @@ function Start-BatchProcessing {
             if ($PSCmdlet.ShouldProcess($finalPath, "Generar QR ($fmt)")) {
                 try {
                     if ($item.PdfUnico -and $fmt -eq "pdf") {
-                        $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -EInk:$p.EInk
+                        $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -EInk:$p.EInk -Compress:$p.Compress -ModuleShape $p.ModuleShape
                         [void]$collectedPages.Add([PSCustomObject]@{
                             type = "QR"
                             m = $m
@@ -5034,11 +5146,13 @@ function Start-BatchProcessing {
                             logoPath = $p.LogoPath
                             logoScale = $p.LogoScale
                             eink = $p.EInk
+                            compress = $p.Compress
+                            moduleShape = $p.ModuleShape
                             path = $finalPath
                             originalIndex = $item.Index
                         })
                     } else {
-                        New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont -EInk:$p.EInk
+                        New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont -EInk:$p.EInk -Compress:$p.Compress -ModuleShape $p.ModuleShape
                     }
                 } catch {
                     Write-Error "Error generando QR ($fmt) para '$($item.Data)': $_"
