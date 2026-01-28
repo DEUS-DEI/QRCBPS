@@ -16,6 +16,8 @@
   - [Ejemplos de Uso](#ejemplos-de-uso)
 - [⚙️ Configuración (config.ini)](#️-configuración-configini)
 - [📊 Formatos de Datos Soportados](#-formatos-de-datos-soportados)
+- [🛠️ Utilidades Adicionales](#️-utilidades-adicionales)
+- [🗺️ Roadmap y Futuras Mejoras](#️-roadmap-y-futuras-mejoras)
 - [⚖️ Licencia y Patentes](#️-licencia-y-patentes)
 
 ---
@@ -121,6 +123,7 @@ El archivo `config.ini` permite centralizar las preferencias globales. Los pará
 | `QRPS_FormatoSalida` | Formatos a generar (pueden ser varios: `svg,pdf,png`) | `pdf` |
 | `QRPS_CarpetaSalida` | Directorio donde se guardarán los archivos | `salida_qr` |
 | `QRPS_ArchivoEntrada` | Nombre del archivo TSV para procesamiento por lotes | `lista_inputs.tsv` |
+| `QRPS_IndiceColumna` | Índice de la columna de datos en el TSV (1-basado) | `1` |
 | `QRPS_LogoPath` | Ruta absoluta o relativa al logo central | (Vacío) |
 | `QRPS_LogoScale` | Porcentaje de ocupación del logo (1-30) | `20` |
 | `QRPS_ColorFront` | Color principal del código QR (HEX) | `#000000` |
@@ -129,10 +132,15 @@ El archivo `config.ini` permite centralizar las preferencias globales. Los pará
 | `QRPS_ColorBack` | Color de fondo (HEX) | `#ffffff` |
 | `QRPS_Redondeado` | Nivel de redondeo de los módulos (0 a 0.5) | `0` |
 | `QRPS_NivelEC` | Nivel de corrección de errores (`L, M, Q, H`) | `M` |
-| `QRPS_TamanoModulo` | Tamaño en píxeles de cada módulo | `10` |
+| `QRPS_Version` | Versión fija del QR (1-40) o `0` para auto | `0` |
+| `QRPS_Prefijo` | Prefijo para los nombres de archivo generados | `qr_` |
+| `QRPS_UseConsecutivo` | Usar números secuenciales como nombre (`si/no`) | `si` |
+| `QRPS_IncluirTimestamp` | Añadir fecha/hora al nombre del archivo (`si/no`) | `no` |
 | `QRPS_PdfUnico` | Combinar múltiples QRs en un solo archivo PDF (`si/no`) | `no` |
 | `QRPS_PdfUnicoNombre` | Nombre del archivo PDF combinado | `qr_combinado.pdf` |
 | `QRPS_Layout` | Layout para PDF único (`Default, Grid4x4, Grid4x5, Grid6x6`) | `Default` |
+| `QRPS_FrameText` | Texto decorativo en el marco superior | (Vacío) |
+| `QRPS_FrameColor` | Color del marco y su texto | `#000000` |
 | `QRPS_MenuTimeout` | Tiempo de espera en segundos para el menú de selección | `5` |
 
 ---
@@ -174,6 +182,44 @@ Divide datos grandes en hasta 16 códigos QR vinculados.
 ```powershell
 .\QRCode.ps1 -Data "Datos muy largos..." -StructuredAppendIndex 0 -StructuredAppendTotal 3 -StructuredAppendParity 123
 ```
+
+---
+
+## 🗺️ Roadmap y Futuras Mejoras
+
+Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el roadmap entre lo que se puede lograr de forma **Nativa en PowerShell** y las capacidades que requerirían **Integraciones Externas**.
+
+### 💻 Implementación Nativa (PowerShell 5.1/7+)
+*Estas mejoras pueden desarrollarse directamente dentro del motor actual sin dependencias externas complejas.*
+
+- **⚡ Rendimiento**:
+  - **Procesamiento en Paralelo**: Uso de `Runspaces` o `ForEach-Object -Parallel` (PS7) para generación masiva.
+  - **Caché de Símbolos**: Reutilización de matrices de patrones fijos para optimizar ciclos de CPU.
+- **🏗️ Arquitectura**:
+  - **Modularización (PSM1)**: Conversión a módulo formal para facilitar la distribución.
+  - **Generación Directa de Lenguajes de Impresión**: Implementación de conversores a **ZPL (Zebra)** y **ESC/POS** mediante manipulación de strings y bytes.
+- **🛡️ Seguridad y Datos**:
+  - **Firmas Digitales (ECDSA)**: Uso de las librerías nativas de .NET (`System.Security.Cryptography`) para firmar el contenido del QR.
+  - **Compresión de Datos**: Implementación de algoritmos de compresión por diccionario para maximizar la capacidad del QR V40.
+  - **Nuevos Formatos**: Soporte para Geo-localización, vEvent y Cripto-direcciones.
+- **🎨 Estética**:
+  - **Redondeado Avanzado y Formas**: Uso de `GraphicsPath` para crear módulos con formas geométricas variadas.
+  - **Optimización E-Ink**: Perfiles de renderizado de alto contraste sin suavizado de bordes.
+
+### 🌐 Integraciones y Sistemas Externos
+*Estas capacidades requieren servicios adicionales, contenedores o librerías de terceros.*
+
+- **� Infraestructura**:
+  - **Servicio Web (API)**: Exponer el motor como un microservicio usando Azure Functions o AWS Lambda.
+  - **QR Dinámico**: Requiere una base de datos y un servidor web intermedio para gestionar las redirecciones y analíticas.
+- **🖼️ Compatibilidad Multiplataforma**:
+  - **Independencia de GDI+**: Migración a `ImageSharp` para soporte completo en Linux/macOS (PowerShell Core), ya que `System.Drawing` está limitado fuera de Windows.
+- **⚙️ Aplicaciones de Usuario**:
+  - **Interfaz Gráfica (GUI)**: Desarrollo de una App de escritorio en **WPF** o **WinUI** que invoque al script.
+- **🔬 Investigación Avanzada**:
+  - **Art QR**: Procesamiento de imágenes mediante IA o algoritmos complejos para fusionar arte y códigos QR.
+  - **Criptografía Post-Cuántica (PQC)**: Integración de librerías criptográficas de nueva generación una vez estandarizadas por el NIST.
+  - **DPM (Direct Part Marking)**: Calibración específica para hardware de grabado láser industrial.
 
 ---
 

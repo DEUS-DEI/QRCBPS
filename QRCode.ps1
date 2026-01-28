@@ -49,8 +49,48 @@ param(
     [switch]$PdfUnico,
     [string]$PdfUnicoNombre = "qr_combinado.pdf",
     [string]$Layout = "Default",
-    [string]$ImageDir = ""
+    [string]$ImageDir = "",
+    [switch]$Help
 )
+
+function Show-Help {
+    Write-Host @"
+==========================================================
+   QRPS - Generador de QR Profesional (PowerShell Nativo)
+==========================================================
+
+USO BASICO:
+  .\QRCode.ps1 -Data "Texto" -OutputPath "qr.pdf"
+
+MODOS DE OPERACION:
+  1. CLI Directo:  Genera un solo QR pasando -Data.
+  2. Batch:       Procesa un archivo TSV (-InputFile) o usa config.ini.
+  3. Conversion:  Combina imagenes en un PDF usando -ImageDir y -Layout.
+  4. Decodificar: Extrae datos de un QR (PNG/SVG) con -Decode -InputPath.
+  5. Interactivo: Sin parametros, inicia el menu visual.
+
+FORMATOS DE DATOS AVANZADOS (Uso interno/Scripting):
+  Puedes usar funciones auxiliares para generar contenido estructurado:
+  - New-EPC: Pagos SEPA (EPC QR). Requiere Beneficiario, IBAN y Monto.
+  - New-WiFiConfig: Configuracion de red WiFi.
+  - New-vCard / New-MeCard: Contactos electronicos.
+
+PARAMETROS PRINCIPALES:
+  -Data <string>           Contenido del codigo QR.
+  -OutputPath <ruta>       Ruta de salida (.pdf, .svg, .png).
+  -Symbol <QR|Micro|rMQR>  Tipo de simbologia (Default: AUTO).
+  -ECLevel <L|M|Q|H>       Nivel de correccion de errores (Default: M).
+  -LogoPath <ruta>         Ruta de imagen para incrustar en el centro.
+  -LogoScale <int>         Tamano del logo % (1-30, Default: 20).
+  -Rounded <float>         Redondeado de modulos (0.0 a 0.5).
+  -ForegroundColor <HEX>   Color del QR (ej: #000000).
+  -BottomText <string[]>   Texto debajo del codigo.
+  -FrameText <string>      Texto en marco superior.
+  -Layout <Grid4x4|...>    Diseno para conversion de imagenes.
+
+Para mas detalles, consulta el archivo README.md.
+"@
+}
 
 # Cargar ensamblados necesarios
 Add-Type -AssemblyName System.Drawing
@@ -3466,6 +3506,12 @@ function ShowConsole($m) {
 
 # --- HELPERS PARA FORMATOS ESTRUCTURADOS ---
 
+function Validate-IBAN($iban) {
+    $clean = $iban.Replace(" ", "").ToUpper()
+    if ($clean -notmatch "^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$") { return $false }
+    return $true
+}
+
 function New-vCard {
     param(
         [string]$Name,
@@ -3475,6 +3521,7 @@ function New-vCard {
         [string]$Url,
         [string]$Note
     )
+    if ($Email -and $Email -notmatch "^[^@\s]+@[^@\s]+\.[^@\s]+$") { Write-Warning "Formato de Email inválido en vCard: $Email" }
     $vc = "BEGIN:VCARD`r`nVERSION:3.0`r`n"
     if ($Name) { $vc += "N:$Name`r`nFN:$Name`r`n" }
     if ($Org)  { $vc += "ORG:$Org`r`n" }
@@ -3494,6 +3541,7 @@ function New-MeCard {
         [string]$Url,
         [string]$Address
     )
+    if ($Email -and $Email -notmatch "^[^@\s]+@[^@\s]+\.[^@\s]+$") { Write-Warning "Formato de Email inválido en MeCard: $Email" }
     # Formato: MECARD:N:Nombre;TEL:Tel;EMAIL:Email;URL:Url;ADR:Direccion;;
     $m = "MECARD:"
     if ($Name) { $m += "N:$Name;" }
@@ -3507,13 +3555,17 @@ function New-MeCard {
 
 function New-WiFiConfig {
     param(
-        [string]$Ssid,
+        [Parameter(Mandatory)][string]$Ssid,
         [string]$Password,
         [ValidateSet('WEP','WPA','nopass')][string]$Auth = 'WPA',
         [switch]$Hidden
     )
+    if ($Auth -ne 'nopass' -and [string]::IsNullOrEmpty($Password)) {
+        throw "Se requiere contraseña para el tipo de seguridad $Auth"
+    }
     # Formato: WIFI:S:SSID;T:WPA;P:password;H:true;;
-    $wifi = "WIFI:S:$Ssid;T:$Auth;P:$Password;"
+    $wifi = "WIFI:S:$Ssid;T:$Auth;"
+    if ($Auth -ne 'nopass') { $wifi += "P:$Password;" }
     if ($Hidden) { $wifi += "H:true;" }
     $wifi += ";"
     return $wifi
@@ -3529,20 +3581,9 @@ function New-EPC {
         [string]$Information = "", # Texto libre
         [string]$Currency = "EUR"
     )
-    # Estándar EPC QR Code (SCT):
-    # Línea 1: Service Tag (BCD)
-    # Línea 2: Version (002)
-    # Línea 3: Character Set (1 = UTF-8)
-    # Línea 4: Identification (SCT)
-    # Línea 5: BIC (Opcional)
-    # Línea 6: Name of Beneficiary
-    # Línea 7: IBAN
-    # Línea 8: Amount (EUR[0.01-999999999.99])
-    # Línea 9: Purpose (Opcional)
-    # Línea 10: Remittance (Estructurada)
-    # Línea 11: Information (Texto libre)
-    # Línea 12: Advice (Opcional)
-
+    if (-not (Validate-IBAN $IBAN)) { throw "IBAN inválido: $IBAN" }
+    if ($Amount -le 0 -or $Amount -ge 1000000000) { throw "El monto debe estar entre 0.01 y 999,999,999.99" }
+    
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.AppendLine("BCD")
     [void]$sb.AppendLine("002")
@@ -4658,11 +4699,12 @@ function Show-Menu {
         Write-Host "       QRPS - GENERADOR QR & PDF NATIVO       " -ForegroundColor White -BackgroundColor Blue
         Write-Host "==============================================" -ForegroundColor Cyan
         Write-Host " 1. Generar QR Individual (Manual)"
-        Write-Host " 2. Procesamiento por Lotes (TSV/CSV)"
-        Write-Host " 3. Conversor de Imágenes a PDF (Layouts)"
-        Write-Host " 4. Decodificar QR desde Archivo"
-        Write-Host " 5. Editar Configuración (config.ini)"
-        Write-Host " 6. Salir"
+        Write-Host " 2. Generar QR con Formato Avanzado (EPC, WiFi, vCard)"
+        Write-Host " 3. Procesamiento por Lotes (TSV/CSV)"
+        Write-Host " 4. Conversor de Imágenes a PDF (Layouts)"
+        Write-Host " 5. Decodificar QR desde Archivo"
+        Write-Host " 6. Editar Configuración (config.ini)"
+        Write-Host " 7. Salir"
         Write-Host "----------------------------------------------"
         $choice = Read-Host "Seleccione una opción"
         
@@ -4696,6 +4738,51 @@ function Show-Menu {
                 Read-Host "`nPresione Enter para continuar..."
             }
             "2" {
+                Clear-Host
+                Write-Host "=== FORMATOS AVANZADOS ===" -ForegroundColor Yellow
+                Write-Host " 1. Pago EPC (SEPA)"
+                Write-Host " 2. Configuración WIFI"
+                Write-Host " 3. Contacto vCard"
+                Write-Host " 4. Contacto MeCard"
+                Write-Host " 5. Volver"
+                $sub = Read-Host "Seleccione"
+                $advData = ""
+                switch ($sub) {
+                    "1" {
+                        $ben = Read-Host "Beneficiario"
+                        $iban = Read-Host "IBAN"
+                        $amt = Read-Host "Monto (EUR)"
+                        try { $advData = New-EPC -Beneficiary $ben -IBAN $iban -Amount ([double]$amt) } catch { Write-Error $_; break }
+                    }
+                    "2" {
+                        $ssid = Read-Host "SSID"
+                        $pass = Read-Host "Contraseña"
+                        $auth = Read-Host "Seguridad (WPA/WEP/nopass) [WPA]"
+                        if (-not $auth) { $auth = "WPA" }
+                        try { $advData = New-WiFiConfig -Ssid $ssid -Password $pass -Auth $auth } catch { Write-Error $_; break }
+                    }
+                    "3" {
+                        $name = Read-Host "Nombre"
+                        $tel = Read-Host "Teléfono"
+                        $email = Read-Host "Email"
+                        $advData = New-vCard -Name $name -Tel $tel -Email $email
+                    }
+                    "4" {
+                        $name = Read-Host "Nombre"
+                        $tel = Read-Host "Teléfono"
+                        $advData = New-MeCard -Name $name -Tel $tel
+                    }
+                    default { break }
+                }
+                if ($advData) {
+                    $out = Read-Host "Nombre del archivo de salida [avanzado.pdf]"
+                    if (-not $out) { $out = "avanzado.pdf" }
+                    New-QRCode -Data $advData -OutputPath $out -ShowConsole
+                    Write-Status "[OK] QR Avanzado generado."
+                    Read-Host "`nPresione Enter para continuar..."
+                }
+            }
+            "3" {
                 $file = Read-Host "Ruta del archivo TSV/CSV (Deje vacío para usar config.ini)"
                 if ($file) { 
                     Start-BatchProcessing -InputFileOverride $file 
@@ -4743,6 +4830,11 @@ function Show-Menu {
 }
 
 # ENTRY POINT
+if ($Help) {
+    Show-Help
+    return
+}
+
 if ($Decode -and -not [string]::IsNullOrEmpty($InputPath)) {
     Write-Status "Importando archivo para decodificación: $InputPath"
     $m = Import-QRCode $InputPath
