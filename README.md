@@ -93,6 +93,17 @@ Salida rasterizada de alta compatibilidad.
 .\QRCode.ps1 -InputFile "lista.tsv" -PdfUnico -PdfUnicoNombre "catalogo.pdf"
 ```
 
+**vCard y Pagos SEPA:**
+```powershell
+# Ejemplo: Generar una vCard (Contacto)
+$contacto = New-vCard -Name "Juan Perez" -Tel "+34600000000" -Email "juan@ejemplo.com"
+.\QRCode.ps1 -Data $contacto -OutputPath "contacto.pdf"
+
+# Ejemplo: Generar un Pago SEPA (EPC)
+$pago = New-EPC -Beneficiary "Empresa S.L." -IBAN "ES211234..." -Amount 125.50 -Information "Factura 2024-01"
+.\QRCode.ps1 -Data $pago -OutputPath "pago_sepa.pdf"
+```
+
 **Uso del Lanzador Interactivo:**
 Ejecuta `run_qrps.bat` para un menú guiado sin necesidad de comandos.
 
@@ -119,7 +130,7 @@ El motor reconoce y valida automáticamente los siguientes formatos:
 - **vCard / MeCard**: Tarjetas de contacto.
 - **WIFI**: Configuración de red (`WIFI:S:SSID;T:WPA;P:PASS;;`).
 - **GS1**: Identificadores de aplicación (GTIN, Lote, Exp.) vía FNC1.
-- **EPC (Próximamente)**: Formatos de transferencia bancaria SEPA.
+- **EPC**: Pagos y transferencias bancarias SEPA (BCD 002).
 - **URL / Email / Tel**: Acciones automáticas estándar.
 - **Texto Plano**: Soporte total para UTF-8 y Kanji.
 

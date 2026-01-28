@@ -3462,6 +3462,51 @@ function New-WiFiConfig {
     return $wifi
 }
 
+function New-EPC {
+    param(
+        [Parameter(Mandatory)][string]$Beneficiary,
+        [Parameter(Mandatory)][string]$IBAN,
+        [Parameter(Mandatory)][double]$Amount,
+        [string]$BIC = "",
+        [string]$Remittance = "", # Referencia estructurada (RF...)
+        [string]$Information = "", # Texto libre
+        [string]$Currency = "EUR"
+    )
+    # Estándar EPC QR Code (SCT):
+    # Línea 1: Service Tag (BCD)
+    # Línea 2: Version (002)
+    # Línea 3: Character Set (1 = UTF-8)
+    # Línea 4: Identification (SCT)
+    # Línea 5: BIC (Opcional)
+    # Línea 6: Name of Beneficiary
+    # Línea 7: IBAN
+    # Línea 8: Amount (EUR[0.01-999999999.99])
+    # Línea 9: Purpose (Opcional)
+    # Línea 10: Remittance (Estructurada)
+    # Línea 11: Information (Texto libre)
+    # Línea 12: Advice (Opcional)
+
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.AppendLine("BCD")
+    [void]$sb.AppendLine("002")
+    [void]$sb.AppendLine("1")
+    [void]$sb.AppendLine("SCT")
+    [void]$sb.AppendLine($BIC)
+    [void]$sb.AppendLine($Beneficiary)
+    [void]$sb.AppendLine($IBAN.Replace(" ", ""))
+    [void]$sb.AppendLine("$Currency$("{0:F2}" -f $Amount)")
+    [void]$sb.AppendLine("") # Purpose
+    if ($Remittance) {
+        [void]$sb.AppendLine($Remittance)
+        [void]$sb.AppendLine("")
+    } else {
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine($Information)
+    }
+    [void]$sb.AppendLine("") # Advice
+    return $sb.ToString().TrimEnd("`r`n")
+}
+
 function New-QRCode {
     [CmdletBinding(SupportsShouldProcess)]
     param(
