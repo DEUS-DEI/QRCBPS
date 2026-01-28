@@ -198,11 +198,15 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
   - **Optimización de Matriz**: Migración de Hashtables a arrays 1D para reducir memoria y ganar velocidad.
   - **Optimización SVG**: Agrupación de módulos en un solo `<path>` para reducir el tamaño del archivo.
   - **Compresión PDF**: Implementación de filtro `/FlateDecode` en streams de contenido nativos.
+  - **Máscaras en Paralelo**: Evaluación concurrente de las 8 máscaras estándar para ganar velocidad en V20+.
+  - **Optimización GetPenalty**: Eliminación de conversiones intermedias de matriz para reducir ciclos de CPU.
+  - **Pre-renderizado**: Sistema de matrices base con patrones fijos pre-calculados por versión.
 - **🏗️ Arquitectura**:
   - **Modularización (PSM1)**: Conversión a módulo formal para facilitar la distribución.
   - **Generación Directa de Lenguajes de Impresión**: Implementación de conversores a **ZPL (Zebra)** y **ESC/POS**.
   - **Robustez**: Implementación de `Set-StrictMode` y tipado estricto de .NET.
   - **Pruebas Unitarias**: Suite de validación automatizada con **Pester**.
+  - **CI/CD Integration**: Plantillas para GitHub Actions y Azure DevOps.
 - **🛡️ Seguridad y Datos**:
   - **Firmas Digitales (ECDSA)**: ✅ Implementado utilizando .NET nativo (`System.Security.Cryptography`).
   - **Compresión de Datos**: ✅ Implementado algoritmos de compresión por diccionario para QR V40.
@@ -210,10 +214,15 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
   - **Validación Semántica**: Verificación estricta de formatos (IBAN, vCard, EPC).
   - **Auto-split**: Fragmentación automática de datos mediante Structured Append.
   - **Externalización GS1**: Gestión de identificadores de aplicación mediante archivo JSON externo.
+  - **PDF/A-3**: Cumplimiento del estándar para permitir la incrustación de archivos de datos fuente.
+  - **ECI Extendido**: Soporte para tablas de caracteres adicionales (Cirílico, Árabe, etc.).
 - **🎨 Estética y UX**:
   - **Redondeado Avanzado y Formas**: ✅ Implementado uso de `GraphicsPath` para módulos geométricos variados.
   - **Optimización E-Ink**: ✅ Implementado perfiles de alto contraste y desactivación de anti-aliasing.
   - **Logging Estándar**: Transición a `Write-Verbose` y `Write-Debug` para mejor integración en scripts.
+  - **Render ANSI**: Visualización instantánea en consola mediante caracteres de medio bloque Unicode.
+  - **Formato EPS**: Exportación vectorial profesional para industria gráfica.
+  - **Data URI**: Salida directa en Base64 para integración web inmediata.
 
 ### 🌐 Integraciones y Sistemas Externos
 *Estas capacidades requieren servicios adicionales, contenedores o librerías de terceros.*
