@@ -2333,7 +2333,8 @@ function ExportPng {
         [string]$frameColor = "",
         [string]$fontFamily = "Arial, sans-serif",
         [string]$googleFont = "",
-        [string]$moduleShape = "square"
+        [string]$moduleShape = "square",
+        [switch]$EInk
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
     Add-Type -AssemblyName System.Drawing
@@ -2361,10 +2362,18 @@ function ExportPng {
     
     $bmp = [Drawing.Bitmap]::new([int]$widthPx, [int]$heightPx)
     $g = [Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $g.TextRenderingHint = [Drawing.Text.TextRenderingHint]::AntiAlias
+    
+    if ($EInk) {
+        $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::None
+        $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+        $g.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::None
+        $g.TextRenderingHint = [Drawing.Text.TextRenderingHint]::SingleBitPerPixelGridFit
+    } else {
+        $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $g.TextRenderingHint = [Drawing.Text.TextRenderingHint]::AntiAlias
+    }
     
     $fgColor = [Drawing.ColorTranslator]::FromHtml($foregroundColor)
     $fgColor2 = if ($foregroundColor2) { [Drawing.ColorTranslator]::FromHtml($foregroundColor2) } else { $fgColor }
@@ -2571,7 +2580,8 @@ function ExportPngRect {
         [string]$frameColor = "",
         [string]$fontFamily = "Arial, sans-serif",
         [string]$googleFont = "",
-        [string]$moduleShape = "square"
+        [string]$moduleShape = "square",
+        [switch]$EInk
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
     Add-Type -AssemblyName System.Drawing
@@ -2599,10 +2609,18 @@ function ExportPngRect {
     
     $bmp = [Drawing.Bitmap]::new([int]$widthPx, [int]$heightPx)
     $g = [Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $g.TextRenderingHint = [Drawing.Text.TextRenderingHint]::AntiAlias
+    
+    if ($EInk) {
+        $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::None
+        $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+        $g.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::None
+        $g.TextRenderingHint = [Drawing.Text.TextRenderingHint]::SingleBitPerPixelGridFit
+    } else {
+        $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $g.TextRenderingHint = [Drawing.Text.TextRenderingHint]::AntiAlias
+    }
     
     $fgColor = [Drawing.ColorTranslator]::FromHtml($foregroundColor)
     $fgColor2 = if ($foregroundColor2) { [Drawing.ColorTranslator]::FromHtml($foregroundColor2) } else { $fgColor }
@@ -2810,7 +2828,8 @@ function ExportSvg {
         [string]$frameColor = "",
         [string]$fontFamily = "Arial, sans-serif",
         [string]$googleFont = "",
-        [string]$moduleShape = "square"
+        [string]$moduleShape = "square",
+        [switch]$EInk
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar SVG")) { return }
     $size = $m.Size
@@ -2835,7 +2854,9 @@ function ExportSvg {
     $heightPx = $hUnits * $scale
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
-    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$(ToDot $widthPx)"" height=""$(ToDot $heightPx)"" viewBox=""0 0 $(ToDot $wUnits) $(ToDot $hUnits)"" shape-rendering=""geometricPrecision"" role=""img"" aria-labelledby=""svgTitle svgDesc"">")
+    
+    $rendering = if ($EInk) { "crispEdges" } else { "geometricPrecision" }
+    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$(ToDot $widthPx)"" height=""$(ToDot $heightPx)"" viewBox=""0 0 $(ToDot $wUnits) $(ToDot $hUnits)"" shape-rendering=""$rendering"" role=""img"" aria-labelledby=""svgTitle svgDesc"">")
     [void]$sb.Append("<title id=""svgTitle"">Código QR</title>")
     [void]$sb.Append("<desc id=""svgDesc"">Código QR generado por qrps que contiene datos codificados.</desc>")
     
@@ -3257,6 +3278,15 @@ end
         
         $itemIdx = 0
         foreach ($item in $itemsInThisPage) {
+            # Optimización E-Ink: Asegurar alto contraste y colores puros
+            if ($item.eink) {
+                $item.fg = "#000000"
+                $item.fg2 = ""
+                $item.bg = "#ffffff"
+                $item.frameColor = "#000000"
+                $item.moduleShape = "default" # Forzar módulos cuadrados para máxima nitidez
+            }
+
             $c = $itemIdx % $cols
             $r = [Math]::Floor($itemIdx / $cols)
             $itemIdx++
@@ -3506,9 +3536,10 @@ function ExportPdf {
         [string]$frameColor = "",
         [string]$fontFamily = "Arial, sans-serif",
         [string]$googleFont = "",
-        [string]$moduleShape = "square"
+        [string]$moduleShape = "square",
+        [switch]$EInk
     )
-
+    
     # Usar el motor nativo multi-página para generar un PDF de una sola página
     # Esto unifica la lógica y permite soporte nativo de logos
     try {
@@ -3529,6 +3560,7 @@ function ExportPdf {
             logoPath = $logoPath
             logoScale = $logoScale
             moduleShape = $moduleShape
+            eink = $EInk
         })
         ExportPdfMultiNative -pages $pages -path $path -layout "Default"
         if (Test-Path $path) {
@@ -3559,7 +3591,8 @@ function ExportSvgRect {
         [string]$frameColor = "",
         [string]$fontFamily = "Arial, sans-serif",
         [string]$googleFont = "",
-        [string]$moduleShape = "square"
+        [string]$moduleShape = "square",
+        [switch]$EInk
     )
     if (-not $PSCmdlet.ShouldProcess($path, "Exportar SVG")) { return }
     $baseW = $m.Width + ($quiet * 2)
@@ -3584,7 +3617,9 @@ function ExportSvgRect {
     $heightPx = $hUnits * $scale
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
-    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$(ToDot $widthPx)"" height=""$(ToDot $heightPx)"" viewBox=""0 0 $(ToDot $wUnits) $(ToDot $hUnits)"" shape-rendering=""geometricPrecision"" role=""img"" aria-labelledby=""svgTitleRect svgDescRect"">")
+    
+    $rendering = if ($EInk) { "crispEdges" } else { "geometricPrecision" }
+    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$(ToDot $widthPx)"" height=""$(ToDot $heightPx)"" viewBox=""0 0 $(ToDot $wUnits) $(ToDot $hUnits)"" shape-rendering=""$rendering"" role=""img"" aria-labelledby=""svgTitleRect svgDescRect"">")
     [void]$sb.Append("<title id=""svgTitleRect"">Código QR Rectangular</title>")
     [void]$sb.Append("<desc id=""svgDescRect"">Código QR rectangular generado por qrps que contiene datos codificados.</desc>")
     
@@ -3895,8 +3930,18 @@ function New-QRCode {
     [string]$FrameColor = "#000000",
     [string]$FontFamily = "Arial, sans-serif",
     [string]$GoogleFont = "",
-    [string]$ModuleShape = "square"
+    [string]$ModuleShape = "square",
+    [switch]$EInk
     )
+    
+    # Perfil E-Ink: Alto contraste y sin suavizado
+    if ($EInk) {
+        $ForegroundColor = "#000000"
+        $ForegroundColor2 = ""
+        $BackgroundColor = "#ffffff"
+        $FrameColor = "#000000"
+        $ModuleShape = "square"
+    }
     
     # Si hay logo, forzamos EC Level H para asegurar lectura
     if (-not [string]::IsNullOrEmpty($LogoPath)) {
@@ -4274,9 +4319,9 @@ function New-QRCode {
         $label = "Exportar $ext"
         if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
             switch ($ext) {
-                ".svg" { ExportSvgRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont }
-                ".pdf" { ExportPdf $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont }
-                default { ExportPngRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape }
+                ".svg" { ExportSvgRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -EInk:$EInk }
+                ".pdf" { ExportPdf $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -EInk:$EInk }
+                default { ExportPngRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -EInk:$EInk }
             }
         }
     }
@@ -4590,10 +4635,12 @@ function Start-BatchProcessing {
         [string]$FrameColor = "",
         [string]$FontFamily = "",
         [string]$GoogleFont = "",
+        [string]$ModuleShape = "",
         [switch]$PdfUnico = $false,
         [string]$PdfUnicoNombre = "",
         [string]$Layout = "Default",
-        [int]$MaxThreads = -1
+        [int]$MaxThreads = -1,
+        [switch]$EInk
     )
     
     if (-not (Test-Path $IniPath) -and [string]::IsNullOrEmpty($InputFileOverride)) { 
@@ -4669,12 +4716,14 @@ function Start-BatchProcessing {
     $frameColorIni = if (-not [string]::IsNullOrEmpty($FrameColor)) { $FrameColor } else { Get-IniValue $iniContent "QRPS" "QRPS_FrameColor" "#000000" }
     $fontFamilyIni = if (-not [string]::IsNullOrEmpty($FontFamily)) { $FontFamily } else { Get-IniValue $iniContent "QRPS" "QRPS_FontFamily" "Arial, sans-serif" }
     $googleFontIni = if (-not [string]::IsNullOrEmpty($GoogleFont)) { $GoogleFont } else { Get-IniValue $iniContent "QRPS" "QRPS_GoogleFont" "" }
+    $moduleShapeIni = if (-not [string]::IsNullOrEmpty($ModuleShape)) { $ModuleShape } else { Get-IniValue $iniContent "QRPS" "QRPS_FormaModulo" "square" }
     
     # PDF Unico logic (Prioritize CLI)
      $pdfUnico = if ($PdfUnico) { $true } else { (Get-IniValue $iniContent "QRPS" "QRPS_PdfUnico" "no") -eq "si" }
      $pdfUnicoNombre = if (-not [string]::IsNullOrEmpty($PdfUnicoNombre)) { $PdfUnicoNombre } else { Get-IniValue $iniContent "QRPS" "QRPS_PdfUnicoNombre" "qr_combinado.pdf" }
      $pdfLayout = if ($Layout -ne "Default") { $Layout } else { Get-IniValue $iniContent "QRPS" "QRPS_Layout" "Default" }
      $actualMaxThreads = if ($MaxThreads -ge 0) { $MaxThreads } else { [int](Get-IniValue $iniContent "QRPS" "QRPS_MaxThreads" "1") }
+     $actualEInk = if ($EInk) { $true } else { (Get-IniValue $iniContent "QRPS" "QRPS_EInk" "no") -eq "si" }
     
     # Si hay logo en config, forzamos EC Level H
     if (-not [string]::IsNullOrEmpty($logoPathIni)) {
@@ -4763,6 +4812,7 @@ function Start-BatchProcessing {
         $rowSymbol = &$getRowVal "Symbol" $Symbol
         $rowModel = &$getRowVal "Model" $Model
         $rowMicroVersion = &$getRowVal "MicroVersion" $MicroVersion
+        $rowModuleShape = &$getRowVal "ModuleShape" $moduleShapeIni
         
         # Nuevas columnas
         $rowNombreArchivo = &$getRowVal "NombreArchivo" ""
@@ -4853,8 +4903,10 @@ function Start-BatchProcessing {
                     BottomText = $bottomText
                     ForegroundColor = $rowFg
                     ForegroundColor2 = $rowFg2
+                    EInk = $actualEInk
                     BackgroundColor = $rowBg
                     Rounded = $rowRounded
+                    ModuleShape = $rowModuleShape
                     GradientType = $gradTypeIni
                     FrameText = $rowFrame
                     FrameColor = $rowFrameColor
@@ -4887,7 +4939,7 @@ function Start-BatchProcessing {
             try {
                 if ($item.PdfUnico -and $fmt -eq "pdf") {
                     # Solo generar matriz para PDF único
-                    $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale
+                    $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -EInk:$p.EInk
                     return @{ 
                         Index = $item.Index; 
                         Type = "PDFPage"; 
@@ -4906,12 +4958,13 @@ function Start-BatchProcessing {
                             frameColor = $p.FrameColor
                             logoPath = $p.LogoPath
                             logoScale = $p.LogoScale
+                            eink = $p.EInk
                             path = $finalPath
                             originalIndex = $item.Index
                         }
                     }
                 } else {
-                    New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont
+                    New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont -EInk:$p.EInk
                     return @{ Index = $item.Index; Type = "File"; Path = $finalPath }
                 }
             } catch {
@@ -4964,7 +5017,7 @@ function Start-BatchProcessing {
             if ($PSCmdlet.ShouldProcess($finalPath, "Generar QR ($fmt)")) {
                 try {
                     if ($item.PdfUnico -and $fmt -eq "pdf") {
-                        $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale
+                        $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -EInk:$p.EInk
                         [void]$collectedPages.Add([PSCustomObject]@{
                             type = "QR"
                             m = $m
@@ -4980,11 +5033,12 @@ function Start-BatchProcessing {
                             frameColor = $p.FrameColor
                             logoPath = $p.LogoPath
                             logoScale = $p.LogoScale
+                            eink = $p.EInk
                             path = $finalPath
                             originalIndex = $item.Index
                         })
                     } else {
-                        New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont
+                        New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont -EInk:$p.EInk
                     }
                 } catch {
                     Write-Error "Error generando QR ($fmt) para '$($item.Data)': $_"
