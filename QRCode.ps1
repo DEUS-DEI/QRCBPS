@@ -2879,6 +2879,20 @@ function ExportPdfMultiNative {
         }
     }
 
+    # Layout calculation
+    $isGrid = $layout -match "Grid"
+    $cols = 1; $rows = 1
+    if ($layout -eq "Grid4x4") { $cols = 4; $rows = 4 }
+    elseif ($layout -eq "Grid4x5") { $cols = 4; $rows = 5 }
+    elseif ($layout -eq "Grid6x6") { $cols = 6; $rows = 6 }
+    
+    $itemsPerPage = $cols * $rows
+    $totalItems = $pages.Count
+    $totalPages = [Math]::Ceiling($totalItems / $itemsPerPage)
+    
+    $pageW = 595.0 # A4 default
+    $pageH = 842.0
+
     # ISO 32000-1 (PDF 1.7) & PDF/A Marker
     &$WriteStr "%PDF-1.7`n"
     $bw.Write(@(37, 226, 227, 207, 211, 10)) # Binary marker (ISO 32000-1 compliance)
