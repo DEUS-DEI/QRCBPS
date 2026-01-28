@@ -65,7 +65,10 @@ Generación vectorial limpia basada en XML.
 Salida rasterizada de alta compatibilidad.
 - **Compresión**: Uso de **ZLIB/Deflate** (RFC 1950/1951) vía .NET.
 - **Color**: Espacio de color **sRGB** (IEC 61966-2-1).
-- **Limitación**: Los logos SVG se convierten a raster al exportar a PNG.
+- **Consistencia**: Soporte para módulos redondeados (`-Rounded`) normalizado mediante `GraphicsPath`.
+- **Limitaciones Técnicas**:
+  - **Degradados**: Debido a restricciones de la librería nativa `System.Drawing` en entornos sin dependencias GDI+ avanzadas, el formato PNG solo soporta colores sólidos para garantizar la portabilidad absoluta.
+  - **Logos Mixtos**: Los logos SVG no se incrustan en PNG para evitar dependencias de renderizado externo; se recomienda usar logos PNG/JPG para salidas raster.
 
 ---
 
