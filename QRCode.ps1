@@ -99,6 +99,68 @@ Add-Type -AssemblyName System.Drawing
 # Cache de matrices pre-inicializadas para optimización (Sincronizado para hilos)
 $script:MATRIX_CACHE = [hashtable]::Synchronized(@{})
 
+# Funciones de utilidad para el manejo de matrices
+function NewM($size) {
+    $m = @{ Size = $size; Mod = @{}; Func = @{} }
+    for ($r = 0; $r -lt $size; $r++) { for ($c = 0; $c -lt $size; $c++) { $m.Mod["$r,$c"] = 0; $m.Func["$r,$c"] = $false } }
+    return $m
+}
+function NewMRect($h, $w) {
+    $m = @{ Height = $h; Width = $w; Mod = @{}; Func = @{} }
+    for ($r = 0; $r -lt $h; $r++) { for ($c = 0; $c -lt $w; $c++) { $m.Mod["$r,$c"] = 0; $m.Func["$r,$c"] = $false } }
+    return $m
+}
+function CopyM($m) {
+    $n = @{ Mod = $m.Mod.Clone(); Func = $m.Func.Clone() }
+    if ($m.Size) { $n.Size = $m.Size }
+    if ($m.Height) { $n.Height = $m.Height; $n.Width = $m.Width }
+    return $n
+}
+function SetM($m, $r, $c, $v) { $m.Mod["$r,$c"] = $v }
+function GetM($m, $r, $c) { return $m.Mod["$r,$c"] }
+function SetF($m, $r, $c, $v) {
+    $h = if ($m.Height) { $m.Height } else { $m.Size }
+    $w = if ($m.Width) { $m.Width } else { $m.Size }
+    if ($r -ge 0 -and $r -lt $h -and $c -ge 0 -and $c -lt $w) {
+        $m.Mod["$r,$c"] = [int]$v; $m.Func["$r,$c"] = $true
+    }
+}
+function IsF($m, $r, $c) { 
+    if ($null -eq $m.Func["$r,$c"]) { return $false }
+    return $m.Func["$r,$c"] 
+}
+
+function AddFinder($m, $r, $c) {
+    for ($dy = -1; $dy -le 7; $dy++) {
+        for ($dx = -1; $dx -le 7; $dx++) {
+            $rr = $r + $dy; $cc = $c + $dx
+            $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
+            if (-not $in) {
+                # Quiet zone around finder
+                $h = if ($m.Height) { $m.Height } else { $m.Size }
+                $w = if ($m.Width) { $m.Width } else { $m.Size }
+                if ($rr -ge 0 -and $rr -lt $h -and $cc -ge 0 -and $cc -lt $w) { $m.Func["$rr,$cc"] = $true }
+                continue
+            }
+            $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
+            $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
+            SetF $m $rr $cc ($on -or $cent)
+        }
+    }
+}
+
+function AddAlign($m, $r, $c) {
+    for ($dy = -2; $dy -le 2; $dy++) {
+        for ($dx = -2; $dx -le 2; $dx++) {
+            $rr = $r + $dy; $cc = $c + $dx
+            if (IsF $m $rr $cc) { continue }
+            $on = [Math]::Abs($dy) -eq 2 -or [Math]::Abs($dx) -eq 2
+            $cent = $dy -eq 0 -and $dx -eq 0
+            SetF $m $rr $cc ($on -or $cent)
+        }
+    }
+}
+
 # GF(256) lookup tables
 $script:EXP = @(1,2,4,8,16,32,64,128,29,58,116,232,205,135,19,38,76,152,45,90,180,117,234,201,143,3,6,12,24,48,96,192,157,39,78,156,37,74,148,53,106,212,181,119,238,193,159,35,70,140,5,10,20,40,80,160,93,186,105,210,185,111,222,161,95,190,97,194,153,47,94,188,101,202,137,15,30,60,120,240,253,231,211,187,107,214,177,127,254,225,223,163,91,182,113,226,217,175,67,134,17,34,68,136,13,26,52,104,208,189,103,206,129,31,62,124,248,237,199,147,59,118,236,197,151,51,102,204,133,23,46,92,184,109,218,169,79,158,33,66,132,21,42,84,168,77,154,41,82,164,85,170,73,146,57,114,228,213,183,115,230,209,191,99,198,145,63,126,252,229,215,179,123,246,241,255,227,219,171,75,150,49,98,196,149,55,110,220,165,87,174,65,130,25,50,100,200,141,7,14,28,56,112,224,221,167,83,166,81,162,89,178,121,242,249,239,195,155,43,86,172,69,138,9,18,36,72,144,61,122,244,245,247,243,251,235,203,139,11,22,44,88,176,125,250,233,207,131,27,54,108,216,173,71,142,1)
 $script:LOG = @(0,0,1,25,2,50,26,198,3,223,51,238,27,104,199,75,4,100,224,14,52,141,239,129,28,193,105,248,200,8,76,113,5,138,101,47,225,36,15,33,53,147,142,218,240,18,130,69,29,181,194,125,106,39,249,185,201,154,9,120,77,228,114,166,6,191,139,98,102,221,48,253,226,152,37,179,16,145,34,136,54,208,148,206,143,150,219,189,241,210,19,92,131,56,70,64,30,66,182,163,195,72,126,110,107,58,40,84,250,133,186,61,202,94,155,159,10,21,121,43,78,212,229,172,115,243,167,87,7,112,192,247,140,128,99,13,103,74,222,237,49,197,254,24,227,165,153,119,38,184,180,124,17,68,146,217,35,32,137,46,55,63,209,91,149,188,207,205,144,135,151,178,220,252,190,97,242,86,211,171,20,42,93,158,132,60,57,83,71,109,65,162,31,45,67,216,183,123,164,118,196,23,73,236,127,12,111,246,108,161,59,82,41,157,85,170,251,96,134,177,187,204,62,90,203,89,95,176,156,169,160,81,11,245,22,235,122,117,44,215,79,174,213,233,230,231,173,232,116,214,244,234,168,80,88,175)
@@ -327,20 +389,19 @@ function InitRMQRMatrix($spec) {
     }
 
     $h = $spec.H; $w = $spec.W
-    $m = @{ Height = $h; Width = $w; Mod = @{}; Func = @{} }
-    for ($r = 0; $r -lt $h; $r++) { for ($c = 0; $c -lt $w; $c++) { $m.Mod["$r,$c"]=0; $m.Func["$r,$c"]=$false } }
+    $m = NewMRect $h $w
     
     # Finder Patterns (TL and BR)
     for ($dy = -1; $dy -le 7; $dy++) { 
         for ($dx = -1; $dx -le 7; $dx++) { 
             # Top-Left
             $rr = 0 + $dy; $cc = 0 + $dx
-            if ($rr -ge 0 -and $cc -ge 0 -and $rr -ge 0 -and $rr -lt $h -and $cc -lt $w) {
+            if ($rr -ge 0 -and $cc -ge 0 -and $rr -lt $h -and $cc -lt $w) {
                 $in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
                 if (-not $in) { $m.Func["$rr,$cc"]=$true; continue }
                 $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
                 $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
-                $m.Func["$rr,$cc"]=$true; $m.Mod["$rr,$cc"]=([int]($on -or $cent))
+                SetF $m $rr $cc ($on -or $cent)
             }
             # Bottom-Right
             $rr = ($h - 7) + $dy; $cc = ($w - 7) + $dx
@@ -349,25 +410,20 @@ function InitRMQRMatrix($spec) {
                 if (-not $in) { $m.Func["$rr,$cc"]=$true; continue }
                 $on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
                 $cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
-                $m.Func["$rr,$cc"]=$true; $m.Mod["$rr,$cc"]=([int]($on -or $cent))
+                SetF $m $rr $cc ($on -or $cent)
             }
         }
     }
     
     # Timing patterns
-    for ($c = 7; $c -lt $w; $c++) { $v = ($c % 2) -eq 0; if (-not $m.Func["6,$c"]) { $m.Func["6,$c"]=$true; $m.Mod["6,$c"]=[int]$v } }
-    for ($r = 7; $r -lt $h; $r++) { $v = ($r % 2) -eq 0; if (-not $m.Func["$r,6"]) { $m.Func["$r,6"]=$true; $m.Mod["$r,6"]=[int]$v } }
+    for ($c = 7; $c -lt $w; $c++) { $v = ($c % 2) -eq 0; if (-not $m.Func["6,$c"]) { SetF $m 6 $c $v } }
+    for ($r = 7; $r -lt $h; $r++) { $v = ($r % 2) -eq 0; if (-not $m.Func["$r,6"]) { SetF $m $r 6 $v } }
     
     # Format Info areas (TL and BR)
     # TL: Use columns 7, 8, 9 (rows 0-5)
     for ($i=0;$i -lt 6;$i++){ $m.Func["$i,7"]=$true; $m.Func["$i,8"]=$true; $m.Func["$i,9"]=$true }
     # BR: Use columns w-8, w-9, w-10 (rows 0-5)
     for ($i=0;$i -lt 6;$i++){ $m.Func["$i,$($w-8)"]=$true; $m.Func["$i,$($w-9)"]=$true; $m.Func["$i,$($w-10)"]=$true }
-    
-    # Alignment patterns for large rMQR (if any - RMQR_SPEC has sub-regions)
-    # ISO 23941 defines sub-finder patterns for versions with more than 1 sub-region.
-    # Our SPEC has D, H, W, VI, etc. but doesn't explicitly list sub-finders.
-    # However, the current implementation in New-QRCode doesn't add them either.
     
     # Guardar en cache antes de retornar
     $script:MATRIX_CACHE[$cacheKey] = CopyM $m
@@ -964,12 +1020,12 @@ function InitMicroM($ver) {
     }
     for ($i = 0; $i -lt 9; $i++) {
         if ($i -lt $size) {
-            if (-not (IsF $m 8 $i)) { $m.Func["8,$i"] = $true }
-            if (-not (IsF $m $i 8)) { $m.Func["$i,8"] = $true }
+            if (-not (IsF $m 8 $i)) { SetF $m 8 $i 0 }
+            if (-not (IsF $m $i 8)) { SetF $m $i 8 0 }
         }
     }
     
-    # Guardar en cache
+    # Cache before returning
     $script:MATRIX_CACHE[$cacheKey] = CopyM $m
     return $m
 }
@@ -990,16 +1046,16 @@ function AddFormatMicro($m, $ec, $mask) {
     for ($i = 0; $i -lt 15; $i++) {
         $bit = [int]($fmt[$i].ToString())
         if ($i -le 5) {
-            $m.Mod["8,$i"] = $bit
+            SetM $m 8 $i $bit
         } elseif ($i -eq 6) {
-            $m.Mod["8,7"] = $bit
+            SetM $m 8 7 $bit
         } elseif ($i -eq 7) {
-            $m.Mod["8,8"] = $bit
+            SetM $m 8 8 $bit
         } elseif ($i -eq 8) {
-            $m.Mod["7,8"] = $bit
+            SetM $m 7 8 $bit
         } else {
             $row = 14 - $i
-            $m.Mod["$row,8"] = $bit
+            SetM $m $row 8 $bit
         }
     }
 }
@@ -1642,58 +1698,6 @@ function CopyM($m) {
     return $new
 }
 
-function NewM($size) {
-    $m = @{}
-    $m.Size = $size
-    $m.Mod = @{}     # "$row,$col" -> 0 or 1
-    $m.Func = @{}    # "$row,$col" -> $true or $false
-    for ($r = 0; $r -lt $size; $r++) {
-        for ($c = 0; $c -lt $size; $c++) {
-            $m.Mod["$r,$c"] = 0
-            $m.Func["$r,$c"] = $false
-        }
-    }
-    return $m
-}
-
-function SetF($m, $r, $c, $v) {
-    if ($r -ge 0 -and $r -lt $m.Size -and $c -ge 0 -and $c -lt $m.Size) {
-        $m.Mod["$r,$c"] = [int]$v
-        $m.Func["$r,$c"] = $true
-    }
-}
-
-function GetM($m, $r, $c) { return $m.Mod["$r,$c"] }
-function IsF($m, $r, $c) { return $m.Func["$r,$c"] }
-
-function AddFinder($m, $row, $col) {
-    for ($dy = -1; $dy -le 7; $dy++) {
-        for ($dx = -1; $dx -le 7; $dx++) {
-            $r = $row + $dy; $c = $col + $dx
-            if ($r -lt 0 -or $r -ge $m.Size -or $c -lt 0 -or $c -ge $m.Size) { continue }
-            
-            $inFinder = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
-            if (-not $inFinder) { SetF $m $r $c $false; continue }
-            
-            $onBorder = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
-            $inCenter = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
-            SetF $m $r $c ($onBorder -or $inCenter)
-        }
-    }
-}
-
-function AddAlign($m, $row, $col) {
-    for ($dy = -2; $dy -le 2; $dy++) {
-        for ($dx = -2; $dx -le 2; $dx++) {
-            $r = $row + $dy; $c = $col + $dx
-            if (IsF $m $r $c) { continue }
-            $onBorder = [Math]::Abs($dy) -eq 2 -or [Math]::Abs($dx) -eq 2
-            $isCenter = $dy -eq 0 -and $dx -eq 0
-            SetF $m $r $c ($onBorder -or $isCenter)
-        }
-    }
-}
-
 function AddVersionInfo($m, $ver) {
     if ($ver -lt 7) { return }
     $bits = $script:VER_INFO[$ver]
@@ -1742,20 +1746,22 @@ function InitM($ver, $model) {
         }
     }
     
-    SetF $m (4 * $ver + 9) 8 $true
+    # Dark module
+    SetF $m (4 * $ver + 9) 8 1
     
+    # Reserve format info areas
     for ($i = 0; $i -lt 9; $i++) {
-        if (-not (IsF $m 8 $i)) { $m.Func["8,$i"] = $true }
-        if (-not (IsF $m $i 8)) { $m.Func["$i,8"] = $true }
+        if (-not (IsF $m 8 $i)) { SetF $m 8 $i 0 }
+        if (-not (IsF $m $i 8)) { SetF $m $i 8 0 }
     }
     for ($i = 0; $i -lt 8; $i++) {
-        if (-not (IsF $m 8 ($size-1-$i))) { $m.Func["8,$($size-1-$i)"] = $true }
-        if (-not (IsF $m ($size-1-$i) 8)) { $m.Func["$($size-1-$i),8"] = $true }
+        if (-not (IsF $m 8 ($size-1-$i))) { SetF $m 8 ($size-1-$i) 0 }
+        if (-not (IsF $m ($size-1-$i) 8)) { SetF $m ($size-1-$i) 8 0 }
     }
     
     AddVersionInfo $m $ver
     
-    # Guardar en cache antes de retornar
+    # Cache before returning
     $script:MATRIX_CACHE[$cacheKey] = CopyM $m
     return $m
 }
@@ -1789,15 +1795,13 @@ function PlaceData($m, $cw) {
 }
 
 function ApplyMask($m, $p) {
-    $r = NewM $m.Size
-    
-    for ($row = 0; $row -lt $m.Size; $row++) {
-        for ($col = 0; $col -lt $m.Size; $col++) {
-            $r.Func["$row,$col"] = $m.Func["$row,$col"]
-            $v = $m.Mod["$row,$col"]
-            
-            if (-not (IsF $m $row $col)) {
-                $mask = switch ($p) {
+    $size = $m.Size
+    $cacheKey = "Mask-$size-$p"
+    if (-not $script:MATRIX_CACHE.ContainsKey($cacheKey)) {
+        $maskArr = New-Object "int[]" ($size * $size)
+        for ($row = 0; $row -lt $size; $row++) {
+            for ($col = 0; $col -lt $size; $col++) {
+                $v = switch ($p) {
                     0 { (($row + $col) % 2) -eq 0 }
                     1 { ($row % 2) -eq 0 }
                     2 { ($col % 3) -eq 0 }
@@ -1807,7 +1811,20 @@ function ApplyMask($m, $p) {
                     6 { (((($row * $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                     7 { (((($row + $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                 }
-                if ($mask) { $v = 1 - $v }
+                $maskArr[$row * $size + $col] = if ($v) { 1 } else { 0 }
+            }
+        }
+        $script:MATRIX_CACHE[$cacheKey] = $maskArr
+    }
+    $maskArr = $script:MATRIX_CACHE[$cacheKey]
+
+    $r = NewM $size
+    for ($row = 0; $row -lt $size; $row++) {
+        for ($col = 0; $col -lt $size; $col++) {
+            $r.Func["$row,$col"] = $m.Func["$row,$col"]
+            $v = $m.Mod["$row,$col"]
+            if (-not (IsF $m $row $col)) {
+                if ($maskArr[$row * $size + $col] -eq 1) { $v = 1 - $v }
             }
             $r.Mod["$row,$col"] = $v
         }
@@ -1819,11 +1836,19 @@ function GetPenalty($m) {
     $pen = 0
     $size = $m.Size
     
-    # Rule 1
+    # Pre-fetch all modules into a 1D array for faster access
+    $data = New-Object "int[]" ($size * $size)
+    for ($r = 0; $r -lt $size; $r++) {
+        for ($c = 0; $c -lt $size; $c++) {
+            $data[$r * $size + $c] = $m.Mod["$r,$c"]
+        }
+    }
+
+    # Rule 1: Consecutive modules of the same color
     for ($r = 0; $r -lt $size; $r++) {
         $run = 1
         for ($c = 1; $c -lt $size; $c++) {
-            if ((GetM $m $r $c) -eq (GetM $m $r ($c-1))) { $run++ }
+            if ($data[$r * $size + $c] -eq $data[$r * $size + $c - 1]) { $run++ }
             else { if ($run -ge 5) { $pen += 3 + $run - 5 }; $run = 1 }
         }
         if ($run -ge 5) { $pen += 3 + $run - 5 }
@@ -1831,50 +1856,68 @@ function GetPenalty($m) {
     for ($c = 0; $c -lt $size; $c++) {
         $run = 1
         for ($r = 1; $r -lt $size; $r++) {
-            if ((GetM $m $r $c) -eq (GetM $m ($r-1) $c)) { $run++ }
+            if ($data[$r * $size + $c] -eq $data[($r - 1) * $size + $c]) { $run++ }
             else { if ($run -ge 5) { $pen += 3 + $run - 5 }; $run = 1 }
         }
         if ($run -ge 5) { $pen += 3 + $run - 5 }
     }
     
-    # Rule 2
+    # Rule 2: 2x2 blocks of the same color
     for ($r = 0; $r -lt $size - 1; $r++) {
         for ($c = 0; $c -lt $size - 1; $c++) {
-            $v = GetM $m $r $c
-            if ($v -eq (GetM $m $r ($c+1)) -and $v -eq (GetM $m ($r+1) $c) -and $v -eq (GetM $m ($r+1) ($c+1))) {
+            $v = $data[$r * $size + $c]
+            if ($v -eq $data[$r * $size + $c + 1] -and $v -eq $data[($r + 1) * $size + $c] -and $v -eq $data[($r + 1) * $size + $c + 1]) {
                 $pen += 3
             }
         }
     }
     
     # Rule 3: Finder-like patterns (1:1:3:1:1 ratio)
+    # Pattern: 1011101 (7 bits) preceded or followed by 0000 (4 bits)
     for ($r = 0; $r -lt $size; $r++) {
         for ($c = 0; $c -lt $size - 10; $c++) {
-            $p = @()
-            for($x=0;$x -lt 11;$x++){ $p += GetM $m $r ($c+$x) }
-            # Pattern: 0000 10111 01  or  10111 01 0000
-            if (($p[4..10] -join "" -eq "1011101") -and (($p[0..3] -join "" -eq "0000") -or ($p[7..10] -join "" -eq "0000"))) {
-                $pen += 40
+            # Check 1011101 at p[4..10] and 0000 at p[0..3]
+            if ($data[$r * $size + $c + 4] -eq 1 -and $data[$r * $size + $c + 5] -eq 0 -and $data[$r * $size + $c + 6] -eq 1 -and 
+                $data[$r * $size + $c + 7] -eq 1 -and $data[$r * $size + $c + 8] -eq 1 -and $data[$r * $size + $c + 9] -eq 0 -and 
+                $data[$r * $size + $c + 10] -eq 1) {
+                if ($data[$r * $size + $c] -eq 0 -and $data[$r * $size + $c + 1] -eq 0 -and $data[$r * $size + $c + 2] -eq 0 -and $data[$r * $size + $c + 3] -eq 0) {
+                    $pen += 40
+                }
+            }
+            # Check 1011101 at p[0..6] and 0000 at p[7..10]
+            if ($data[$r * $size + $c] -eq 1 -and $data[$r * $size + $c + 1] -eq 0 -and $data[$r * $size + $c + 2] -eq 1 -and 
+                $data[$r * $size + $c + 3] -eq 1 -and $data[$r * $size + $c + 4] -eq 1 -and $data[$r * $size + $c + 5] -eq 0 -and 
+                $data[$r * $size + $c + 6] -eq 1) {
+                if ($data[$r * $size + $c + 7] -eq 0 -and $data[$r * $size + $c + 8] -eq 0 -and $data[$r * $size + $c + 9] -eq 0 -and $data[$r * $size + $c + 10] -eq 0) {
+                    $pen += 40
+                }
             }
         }
     }
     for ($c = 0; $c -lt $size; $c++) {
         for ($r = 0; $r -lt $size - 10; $r++) {
-            $p = @()
-            for($x=0;$x -lt 11;$x++){ $p += GetM $m ($r+$x) $c }
-            if (($p[4..10] -join "" -eq "1011101") -and (($p[0..3] -join "" -eq "0000") -or ($p[7..10] -join "" -eq "0000"))) {
-                $pen += 40
+            # Check 1011101 at p[4..10] and 0000 at p[0..3]
+            if ($data[($r + 4) * $size + $c] -eq 1 -and $data[($r + 5) * $size + $c] -eq 0 -and $data[($r + 6) * $size + $c] -eq 1 -and 
+                $data[($r + 7) * $size + $c] -eq 1 -and $data[($r + 8) * $size + $c] -eq 1 -and $data[($r + 9) * $size + $c] -eq 0 -and 
+                $data[($r + 10) * $size + $c] -eq 1) {
+                if ($data[$r * $size + $c] -eq 0 -and $data[($r + 1) * $size + $c] -eq 0 -and $data[($r + 2) * $size + $c] -eq 0 -and $data[($r + 3) * $size + $c] -eq 0) {
+                    $pen += 40
+                }
+            }
+            # Check 1011101 at p[0..6] and 0000 at p[7..10]
+            if ($data[$r * $size + $c] -eq 1 -and $data[($r + 1) * $size + $c] -eq 0 -and $data[($r + 2) * $size + $c] -eq 1 -and 
+                $data[($r + 3) * $size + $c] -eq 1 -and $data[($r + 4) * $size + $c] -eq 1 -and $data[($r + 5) * $size + $c] -eq 0 -and 
+                $data[($r + 6) * $size + $c] -eq 1) {
+                if ($data[($r + 7) * $size + $c] -eq 0 -and $data[($r + 8) * $size + $c] -eq 0 -and $data[($r + 9) * $size + $c] -eq 0 -and $data[($r + 10) * $size + $c] -eq 0) {
+                    $pen += 40
+                }
             }
         }
     }
 
-    # Rule 4
+    # Rule 4: Proportion of dark modules
     $dark = 0
-    for ($r = 0; $r -lt $size; $r++) {
-        for ($c = 0; $c -lt $size; $c++) {
-            if ((GetM $m $r $c) -eq 1) { $dark++ }
-        }
-    }
+    foreach ($v in $data) { if ($v -eq 1) { $dark++ } }
     $pct = [int](($dark * 100) / ($size * $size))
     $pen += [Math]::Floor([Math]::Abs($pct - 50) / 5) * 10
     
@@ -1904,13 +1947,14 @@ function ReadFormatInfo($m) {
 }
 
 function UnmaskQR($m, $p) {
-    $r = NewM $m.Size
-    for ($row = 0; $row -lt $m.Size; $row++) {
-        for ($col = 0; $col -lt $m.Size; $col++) {
-            $r.Func["$row,$col"] = $m.Func["$row,$col"]
-            $v = $m.Mod["$row,$col"]
-            if (-not (IsF $m $row $col)) {
-                $mask = switch ($p) {
+    $size = $m.Size
+    $cacheKey = "Mask-$size-$p"
+    if (-not $script:MATRIX_CACHE.ContainsKey($cacheKey)) {
+        # This shouldn't happen if encoding was done first, but good for standalone decoding
+        $maskArr = New-Object "int[]" ($size * $size)
+        for ($row = 0; $row -lt $size; $row++) {
+            for ($col = 0; $col -lt $size; $col++) {
+                $v = switch ($p) {
                     0 { (($row + $col) % 2) -eq 0 }
                     1 { ($row % 2) -eq 0 }
                     2 { ($col % 3) -eq 0 }
@@ -1920,7 +1964,20 @@ function UnmaskQR($m, $p) {
                     6 { (((($row * $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                     7 { (((($row + $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                 }
-                if ($mask) { $v = 1 - $v }
+                $maskArr[$row * $size + $col] = if ($v) { 1 } else { 0 }
+            }
+        }
+        $script:MATRIX_CACHE[$cacheKey] = $maskArr
+    }
+    $maskArr = $script:MATRIX_CACHE[$cacheKey]
+
+    $r = NewM $size
+    for ($row = 0; $row -lt $size; $row++) {
+        for ($col = 0; $col -lt $size; $col++) {
+            $r.Func["$row,$col"] = $m.Func["$row,$col"]
+            $v = $m.Mod["$row,$col"]
+            if (-not (IsF $m $row $col)) {
+                if ($maskArr[$row * $size + $col] -eq 1) { $v = 1 - $v }
             }
             $r.Mod["$row,$col"] = $v
         }
@@ -2320,44 +2377,27 @@ function AddFormat($m, $ec, $mask) {
     $fmt = $script:FMT["$ec$mask"]
     $size = $m.Size
     
-    # Format info is 15 bits total
-    # Bit 0 is the leftmost (MSB) in the format string
-    # We need to place bits in specific positions around finder patterns
-    
     for ($i = 0; $i -lt 15; $i++) {
         $bit = [int]($fmt[$i].ToString())
         
-        # First copy: around top-left finder pattern
-        # Bits 0-5: row 8, columns 0-5
-        # Bit 6: row 8, column 7 (skip column 6 - timing)
-        # Bit 7: row 8, column 8
-        # Bit 8: row 7, column 8
-        # Bits 9-14: rows 5,4,3,2,1,0 column 8 (skip row 6 - timing)
-        
         if ($i -le 5) {
-            $m.Mod["8,$i"] = $bit
+            SetM $m 8 $i $bit
         } elseif ($i -eq 6) {
-            $m.Mod["8,7"] = $bit
+            SetM $m 8 7 $bit
         } elseif ($i -eq 7) {
-            $m.Mod["8,8"] = $bit
+            SetM $m 8 8 $bit
         } elseif ($i -eq 8) {
-            $m.Mod["7,8"] = $bit
+            SetM $m 7 8 $bit
         } else {
-            # i = 9,10,11,12,13,14 -> rows 5,4,3,2,1,0
             $row = 14 - $i
-            $m.Mod["$row,8"] = $bit
+            SetM $m $row 8 $bit
         }
         
-        # Second copy: near bottom-left and top-right finders
-        # Bits 0-7: row 8, columns (size-1) down to (size-8)
-        # Bits 8-14: column 8, rows (size-7) up to (size-1)
-        
         if ($i -le 7) {
-            $m.Mod["8,$($size - 1 - $i)"] = $bit
+            SetM $m 8 ($size - 1 - $i) $bit
         } else {
-            # i = 8,9,10,11,12,13,14 -> rows size-7, size-6, ... size-1
             $row = $size - 15 + $i
-            $m.Mod["$row,8"] = $bit
+            SetM $m $row 8 $bit
         }
     }
 }
@@ -2495,6 +2535,9 @@ function ExportPng {
         [Drawing.SolidBrush]::new($fgColor)
     }
     
+    # Optimización: Usar un solo GraphicsPath para todos los módulos
+    $mainPath = [Drawing.Drawing2D.GraphicsPath]::new()
+    
     for ($r = 0; $r -lt $m.Size; $r++) {
         for ($c = 0; $c -lt $m.Size; $c++) {
             $x = ($c + $quiet) * $scale
@@ -2503,12 +2546,11 @@ function ExportPng {
             if ($logoMask -and ($x + $qrOffX) -ge ($logoMask.x1 + $qrOffX) -and ($x + $qrOffX) -le ($logoMask.x2 + $qrOffX) -and ($y + $qrOffY) -ge ($logoMask.y1 + $qrOffY) -and ($y + $qrOffY) -le ($logoMask.y2 + $qrOffY)) { continue }
             
             if ((GetM $m $r $c) -eq 1) {
-                $gp = [Drawing.Drawing2D.GraphicsPath]::new()
                 $rect = [Drawing.RectangleF]::new([float]($x + $qrOffX), [float]($y + $qrOffY), [float]$scale, [float]$scale)
                 
                 switch ($moduleShape) {
                     'circle' {
-                        $gp.AddEllipse($rect)
+                        $mainPath.AddEllipse($rect)
                     }
                     'diamond' {
                         $points = @(
@@ -2517,7 +2559,7 @@ function ExportPng {
                             [Drawing.PointF]::new($rect.X + $rect.Width / 2, $rect.Bottom),
                             [Drawing.PointF]::new($rect.X, $rect.Y + $rect.Height / 2)
                         )
-                        $gp.AddPolygon($points)
+                        $mainPath.AddPolygon($points)
                     }
                     'star' {
                         $cx = $rect.X + $rect.Width / 2
@@ -2527,10 +2569,10 @@ function ExportPng {
                         $points = New-Object Drawing.PointF[] 10
                         for ($i = 0; $i -lt 10; $i++) {
                             $angle = [Math]::PI * ($i * 36 - 90) / 180
-                            $rad = if ($i % 2 -eq 0) { $rOuter } else { $radInner }
+                            $rad = if ($i % 2 -eq 0) { $rOuter } else { $rInner }
                             $points[$i] = [Drawing.PointF]::new($cx + $rad * [Math]::Cos($angle), $cy + $rad * [Math]::Sin($angle))
                         }
-                        $gp.AddPolygon($points)
+                        $mainPath.AddPolygon($points)
                     }
                     'rounded' {
                         $rad = [float]($scale * ($rounded / 100))
@@ -2538,22 +2580,22 @@ function ExportPng {
                         if ($rad -le 0) { $rad = $scale * 0.2 }
                         
                         $diam = $rad * 2
-                        $gp.AddArc($rect.X, $rect.Y, $diam, $diam, 180, 90)
-                        $gp.AddArc($rect.Right - $diam, $rect.Y, $diam, $diam, 270, 90)
-                        $gp.AddArc($rect.Right - $diam, $rect.Bottom - $diam, $diam, $diam, 0, 90)
-                        $gp.AddArc($rect.X, $rect.Bottom - $diam, $diam, $diam, 90, 90)
-                        $gp.CloseFigure()
+                        $mainPath.AddArc($rect.X, $rect.Y, $diam, $diam, 180, 90)
+                        $mainPath.AddArc($rect.Right - $diam, $rect.Y, $diam, $diam, 270, 90)
+                        $mainPath.AddArc($rect.Right - $diam, $rect.Bottom - $diam, $diam, $diam, 0, 90)
+                        $mainPath.AddArc($rect.X, $rect.Bottom - $diam, $diam, $diam, 90, 90)
+                        $mainPath.CloseFigure()
                     }
                     default { # square
-                        $gp.AddRectangle($rect)
+                        $mainPath.AddRectangle($rect)
                     }
                 }
-                
-                $g.FillPath($qrBrush, $gp)
-                $gp.Dispose()
             }
         }
     }
+    
+    $g.FillPath($qrBrush, $mainPath)
+    $mainPath.Dispose()
     
     # Texto debajo
     if ($bottomText.Count -gt 0) {
@@ -2744,6 +2786,9 @@ function ExportPngRect {
         [Drawing.SolidBrush]::new($fgColor)
     }
     
+    # Optimización: Usar un solo GraphicsPath para todos los módulos
+    $mainPath = [Drawing.Drawing2D.GraphicsPath]::new()
+    
     for ($r = 0; $r -lt $m.Height; $r++) {
         for ($c = 0; $c -lt $m.Width; $c++) {
             $x = ($c + $quiet) * $scale
@@ -2752,12 +2797,11 @@ function ExportPngRect {
             if ($logoMask -and ($x + $qrOffX) -ge ($logoMask.x1 + $qrOffX) -and ($x + $qrOffX) -le ($logoMask.x2 + $qrOffX) -and ($y + $qrOffY) -ge ($logoMask.y1 + $qrOffY) -and ($y + $qrOffY) -le ($logoMask.y2 + $qrOffY)) { continue }
             
             if ((GetM $m $r $c) -eq 1) {
-                $gp = [Drawing.Drawing2D.GraphicsPath]::new()
                 $rect = [Drawing.RectangleF]::new([float]($x + $qrOffX), [float]($y + $qrOffY), [float]$scale, [float]$scale)
                 
                 switch ($moduleShape) {
                     'circle' {
-                        $gp.AddEllipse($rect)
+                        $mainPath.AddEllipse($rect)
                     }
                     'diamond' {
                         $points = @(
@@ -2766,7 +2810,7 @@ function ExportPngRect {
                             [Drawing.PointF]::new($rect.X + $rect.Width / 2, $rect.Bottom),
                             [Drawing.PointF]::new($rect.X, $rect.Y + $rect.Height / 2)
                         )
-                        $gp.AddPolygon($points)
+                        $mainPath.AddPolygon($points)
                     }
                     'star' {
                         $cx = $rect.X + $rect.Width / 2
@@ -2779,7 +2823,7 @@ function ExportPngRect {
                             $rad = if ($i % 2 -eq 0) { $rOuter } else { $rInner }
                             $points[$i] = [Drawing.PointF]::new($cx + $rad * [Math]::Cos($angle), $cy + $rad * [Math]::Sin($angle))
                         }
-                        $gp.AddPolygon($points)
+                        $mainPath.AddPolygon($points)
                     }
                     'rounded' {
                         $rad = [float]($scale * ($rounded / 100))
@@ -2787,22 +2831,22 @@ function ExportPngRect {
                         if ($rad -le 0) { $rad = $scale * 0.2 }
                         
                         $diam = $rad * 2
-                        $gp.AddArc($rect.X, $rect.Y, $diam, $diam, 180, 90)
-                        $gp.AddArc($rect.Right - $diam, $rect.Y, $diam, $diam, 270, 90)
-                        $gp.AddArc($rect.Right - $diam, $rect.Bottom - $diam, $diam, $diam, 0, 90)
-                        $gp.AddArc($rect.X, $rect.Bottom - $diam, $diam, $diam, 90, 90)
-                        $gp.CloseFigure()
+                        $mainPath.AddArc($rect.X, $rect.Y, $diam, $diam, 180, 90)
+                        $mainPath.AddArc($rect.Right - $diam, $rect.Y, $diam, $diam, 270, 90)
+                        $mainPath.AddArc($rect.Right - $diam, $rect.Bottom - $diam, $diam, $diam, 0, 90)
+                        $mainPath.AddArc($rect.X, $rect.Bottom - $diam, $diam, $diam, 90, 90)
+                        $mainPath.CloseFigure()
                     }
                     default { # square
-                        $gp.AddRectangle($rect)
+                        $mainPath.AddRectangle($rect)
                     }
                 }
-                
-                $g.FillPath($qrBrush, $gp)
-                $gp.Dispose()
             }
         }
     }
+    
+    $g.FillPath($qrBrush, $mainPath)
+    $mainPath.Dispose()
     
     # Texto debajo
     if ($bottomText.Count -gt 0) {

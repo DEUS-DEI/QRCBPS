@@ -193,18 +193,18 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 *Estas mejoras pueden desarrollarse directamente dentro del motor actual sin dependencias externas complejas.*
 
 - **⚡ Rendimiento**:
-  - **Procesamiento en Paralelo**: Uso de `Runspaces` o `ForEach-Object -Parallel` (PS7) para generación masiva.
-  - **Caché de Símbolos**: Reutilización de matrices de patrones fijos para optimizar ciclos de CPU.
+  - **Procesamiento en Paralelo**: ✅ Implementado mediante `RunspacePool` para máxima eficiencia en lotes.
+  - **Caché de Símbolos**: ✅ Implementado mediante reutilización de matrices de patrones fijos y máscaras pre-calculadas.
 - **🏗️ Arquitectura**:
   - **Modularización (PSM1)**: Conversión a módulo formal para facilitar la distribución.
-  - **Generación Directa de Lenguajes de Impresión**: Implementación de conversores a **ZPL (Zebra)** y **ESC/POS** mediante manipulación de strings y bytes.
+  - **Generación Directa de Lenguajes de Impresión**: Implementación de conversores a **ZPL (Zebra)** y **ESC/POS**.
 - **🛡️ Seguridad y Datos**:
-  - **Firmas Digitales (ECDSA)**: Uso de las librerías nativas de .NET (`System.Security.Cryptography`) para firmar el contenido del QR.
-  - **Compresión de Datos**: Implementación de algoritmos de compresión por diccionario para maximizar la capacidad del QR V40.
-  - **Nuevos Formatos**: Soporte para Geo-localización, vEvent y Cripto-direcciones.
+  - **Firmas Digitales (ECDSA)**: ✅ Implementado utilizando .NET nativo (`System.Security.Cryptography`).
+  - **Compresión de Datos**: ✅ Implementado algoritmos de compresión por diccionario para QR V40.
+  - **Nuevos Formatos**: ✅ Soporte para Geo-localización, vEvent y Cripto-direcciones.
 - **🎨 Estética**:
-  - **Redondeado Avanzado y Formas**: Uso de `GraphicsPath` para crear módulos con formas geométricas variadas.
-  - **Optimización E-Ink**: Perfiles de renderizado de alto contraste sin suavizado de bordes.
+  - **Redondeado Avanzado y Formas**: Uso de `GraphicsPath` para módulos geométricos variados.
+  - **Optimización E-Ink**: ✅ Implementado perfiles de alto contraste y desactivación de anti-aliasing.
 
 ### 🌐 Integraciones y Sistemas Externos
 *Estas capacidades requieren servicios adicionales, contenedores o librerías de terceros.*
