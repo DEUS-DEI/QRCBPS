@@ -226,8 +226,17 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 ## ⚖️ Licencia y Patentes
 
 - **Licencia**: Apache 2.0 (Libre uso, modificación y distribución).
-- **Patentes**: Basado en estándares abiertos de **ISO/IEC 18004**. La tecnología QR es una marca de DENSO WAVE INCORPORATED, utilizada aquí bajo el derecho de uso de estándares internacionales.
-- **Restricción**: No implementa **SQRC** o **iQR** por requerir algoritmos propietarios de cifrado.
+- **Propiedad Intelectual**: Este software es una implementación original en PowerShell de diversos estándares públicos e internacionales.
+- **Estándares y Patentes**:
+  - **QR Code**: La tecnología QR Code es una marca registrada de **DENSO WAVE INCORPORATED**. Su uso aquí se basa en el estándar abierto **ISO/IEC 18004**. DENSO WAVE no ejerce derechos de patente sobre el uso del estándar en implementaciones conformes.
+  - **PDF**: Cumple con **ISO 32000-1** (PDF 1.7) e **ISO 14289-1** (PDF/UA-1 para accesibilidad).
+  - **SVG**: Implementación basada en las recomendaciones de la **W3C (Scalable Vector Graphics)** y cumplimiento de **WCAG 2.1** para accesibilidad web.
+  - **PNG**: Basado en **ISO/IEC 15948:2004** (especificación W3C para redes).
+  - **EPC QR**: Sigue la especificación **EPC069-12** del Consejo Europeo de Pagos para transferencias SEPA.
+  - **Contactos**: vCard (IETF **RFC 6350**) and MeCard (estándar de facto de NTT DOCOMO).
+- **Entorno de Ejecución**:
+  - **PowerShell**: Este software utiliza el motor de automatización de Microsoft. PowerShell Core (7+) está licenciado bajo la **Licencia MIT**, mientras que Windows PowerShell 5.1 es un componente del sistema operativo Windows. Ambos permiten el uso y desarrollo de scripts de forma gratuita para fines personales y comerciales.
+- **Restricciones**: No se implementan formatos propietarios cerrados como **SQRC** o **iQR**, ya que requieren algoritmos de cifrado y licencias específicas de DENSO WAVE.
 
 ---
 *Documentación actualizada al 27 de enero de 2026. Cumplimiento verificado bajo estándares ISO/IEC 18004:2024.*
