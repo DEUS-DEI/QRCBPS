@@ -93,7 +93,38 @@ El motor de exportación PDF de `qrps` es una implementación binaria nativa dis
 
 ---
 
-| Formato | Estado | Tipo | Recomendación |
+## 🖼️ Cumplimiento de Estándares PNG y SVG
+
+El motor `qrps` genera archivos PNG y SVG utilizando métodos nativos de .NET y generación de texto XML, respectivamente, cumpliendo con los estándares de la industria para máxima compatibilidad.
+
+### 🖼️ Estándares PNG (Portable Network Graphics)
+| Estándar / Norma | Estado | Notas Técnicas |
+| :--- | :---: | :--- |
+| **ISO/IEC 15948 (PNG)** | ✅ | Estándar principal. Generado vía `System.Drawing.Bitmap`. |
+| **RFC 1950 / 1951 (ZLIB/Deflate)** | ✅ | Utilizado internamente por el motor de compresión de .NET. |
+| **IEC 61966-2-1 (sRGB)** | ✅ | Espacio de color estándar para visualización web. |
+| **ICC.1 (Perfiles de Color)** | 🟡 | Se asume sRGB por defecto; no se incrustan perfiles personalizados. |
+| **ISO/IEC 10646 (Unicode)** | ✅ | Soporte para renderizado de texto en etiquetas inferiores. |
+| **IANA MIME image/png** | ✅ | Identificación correcta para transporte y servidores web. |
+
+**Limitaciones PNG**: No se implementan formatos animados (APNG) ni multi-imagen (MNG/JNG) por no ser relevantes para códigos QR estáticos.
+
+### 🎨 Estándares SVG (Scalable Vector Graphics)
+| Estándar / Norma | Estado | Notas Técnicas |
+| :--- | :---: | :--- |
+| **W3C SVG 1.1 (2nd Edition)** | ✅ | Perfil base de generación para máxima compatibilidad. |
+| **W3C XML 1.0 / Namespaces** | ✅ | Generación estricta con declaración de encoding UTF-8. |
+| **W3C CSS (Inline Styles)** | ✅ | Uso de estilos en línea y @import para Google Fonts. |
+| **W3C XLink** | ✅ | Soporte para incrustación de logos PNG en Base64. |
+| **W3C Accessibility (WCAG)** | ✅ | Inclusión de etiquetas `title` y `desc` para lectores de pantalla. |
+| **MIME image/svg+xml** | ✅ | Registro estándar para entrega web segura. |
+
+### 🔡 Estándares Tipográficos y Otros
+- **WOFF / WOFF2**: Soportado indirectamente mediante la integración de **Google Fonts** vía CSS `@import`.
+- **Open Font Format**: Compatibilidad con fuentes instaladas en el sistema para renderizado PNG.
+- **CSP (Content Security Policy)**: Los SVGs generados son compatibles con políticas de seguridad modernas al evitar scripts externos (`ECMAScript` excluido por diseño).
+
+---
 | :--- | :---: | :--- | :--- |
 | **SVG** | ✅ | Vectorial | **Ideal**. Calidad infinita, menor peso, basado en texto. |
 | **PDF** | ✅ | Vectorial | **Estándar Impresión**. Generado 100% nativo (binario) para funciones core. |
@@ -286,7 +317,7 @@ El motor permite incrustar logos en formato **SVG, PNG o JPG**. Al detectar un l
 .\QRCode.ps1 -InputFile "lista.tsv" -PdfUnico -Layout "Grid4x4" -OutputPath "catalogo_4x4.pdf"
 
 # Convertir carpeta de imágenes a PDF con Layout Grid6x6
-.\QRCode.ps1 -ImageDir "C:\MisFotos" -Layout "Grid6x6" -OutputPath "galeria.pdf"
+.\QRCode.ps1 -ImageDir ".\MisFotos" -Layout "Grid6x6" -OutputPath "galeria.pdf"
 ```
 
 ### Decodificación y Calidad

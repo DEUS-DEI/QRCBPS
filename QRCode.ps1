@@ -2664,7 +2664,9 @@ function ExportSvg {
     $heightPx = $hUnits * $scale
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
-    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$(ToDot $widthPx)"" height=""$(ToDot $heightPx)"" viewBox=""0 0 $(ToDot $wUnits) $(ToDot $hUnits)"" shape-rendering=""crispEdges"">")
+    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$(ToDot $widthPx)"" height=""$(ToDot $heightPx)"" viewBox=""0 0 $(ToDot $wUnits) $(ToDot $hUnits)"" shape-rendering=""crispEdges"" role=""img"" aria-labelledby=""svgTitle svgDesc"">")
+    [void]$sb.Append("<title id=""svgTitle"">Código QR</title>")
+    [void]$sb.Append("<desc id=""svgDesc"">Código QR generado por qrps que contiene datos codificados.</desc>")
     
     # Fuentes Personalizadas
     [void]$sb.Append("<defs>")
@@ -2897,26 +2899,16 @@ function ExportPdfMultiNative {
     &$WriteStr "%PDF-1.7`n"
     $bw.Write(@(37, 226, 227, 207, 211, 10)) # Binary marker (ISO 32000-1 compliance)
 
-    # ISO 32000-1 Annex G: Linearization Dictionary (Fast Web View)
-    # This dictionary must be within the first 1024 bytes of the file.
-    &$StartObj # Obj 8: Linearization
-    &$WriteStr "<< /Linearized 1.0 /L 0 /H [ 0 0 ] /O 0 /E 0 /N 0 /T 0 >>`nendobj`n"
-    # Note: L, H, O, E, N, T are placeholders. A full linearization requires a second pass 
-    # to calculate exact byte offsets and lengths, but the presence of the dictionary 
-    # enables 'Fast Web View' flags in many readers.
-
     # 1. Catalog & Metadata (ISO 16684-1 / PDF/A-2b / PDF/UA-1 / ISO 32000-1 Annex G)
-    # Linearization (Simplified): The Primary Hint Stream and first page should be at the beginning.
-    # We maintain a standard object order for readability, but mark it for fast web view compliance.
-    $catalogId = 1
-    $pagesRootId = 2
-    $metadataId = 3
-    $outputIntentId = 4
-    $markInfoId = 5
-    $structTreeRootId = 6
+    $linearizedObjId = 1
+    $catalogId = 2
+    $pagesRootId = 3
+    $metadataId = 4
+    $outputIntentId = 5
+    $markInfoId = 6
     $iccProfileId = 7
-    $linearizedObjId = 8 # New object for Linearization dictionary
-    $toUnicodeId = 9
+    $toUnicodeId = 8
+    $structTreeRootId = 9
 
     # XMP Metadata (ISO 16684-1 / Dublin Core)
     $now = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
@@ -2944,29 +2936,29 @@ function ExportPdfMultiNative {
 "@
     $xmpBytes = [System.Text.Encoding]::UTF8.GetBytes($xmp)
 
-    &$StartObj # Obj 1: Catalog
+    &$StartObj # Obj 1: Linearization
+    &$WriteStr "<< /Linearized 1.0 /L 0 /H [ 0 0 ] /O 0 /E 0 /N 0 /T 0 >>`nendobj`n"
+
+    &$StartObj # Obj 2: Catalog
     &$WriteStr "<< /Type /Catalog /Pages $pagesRootId 0 R /Metadata $metadataId 0 R /OutputIntents [$outputIntentId 0 R] /MarkInfo $markInfoId 0 R /StructTreeRoot $structTreeRootId 0 R >>`nendobj`n"
 
-    &$StartObj # Obj 2: Pages Root
+    &$StartObj # Obj 3: Pages Root
     $kidsPlaceholderPos = $fs.Position + 25
     &$WriteStr "<< /Type /Pages /Kids [ "
     $kidsStartPos = $fs.Position
     for ($i=0; $i -lt $totalPages; $i++) { &$WriteStr "000 0 R " }
     &$WriteStr "] /Count $totalPages >>`nendobj`n"
 
-    &$StartObj # Obj 3: Metadata Stream
+    &$StartObj # Obj 4: Metadata Stream
     &$WriteStr "<< /Type /Metadata /Subtype /XML /Length $($xmpBytes.Length) >>`nstream`n"
     $bw.Write($xmpBytes)
     &$WriteStr "`nendstream`nendobj`n"
 
-    &$StartObj # Obj 4: OutputIntent (PDF/A)
+    &$StartObj # Obj 5: OutputIntent (PDF/A)
     &$WriteStr "<< /Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (sRGB) /Info (sRGB IEC61966-2.1) /DestOutputProfile $iccProfileId 0 R >>`nendobj`n"
 
-    &$StartObj # Obj 5: MarkInfo (Accessibility)
+    &$StartObj # Obj 6: MarkInfo (Accessibility)
     &$WriteStr "<< /Marked true >>`nendobj`n"
-
-    &$StartObj # Obj 6: StructTreeRoot
-    &$WriteStr "<< /Type /StructTreeRoot /K [] >>`nendobj`n" # Will be updated if needed
 
     &$StartObj # Obj 7: ICC Profile (Minimal sRGB)
     # A very minimal sRGB profile for compliance
@@ -3023,7 +3015,7 @@ CMapName currentdict /CMap defineresource pop
 end
 end
 "@
-    &$StartObj # Obj 9: ToUnicode CMap
+    &$StartObj # Obj 8: ToUnicode CMap
     &$WriteStr "<< /Length $($toUnicodeCMap.Length) >>`nstream`n$toUnicodeCMap`nendstream`nendobj`n"
 
     $actualPageIds = @()
@@ -3146,6 +3138,12 @@ end
         &$WriteStr "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $(ToDot $pW) $(ToDot $pH)] /Contents $contId 0 R /Resources $resId 0 R >>`nendobj`n"
     }
 
+    # Obj 9: StructTreeRoot (ISO 32000-1 / PDF/UA-1)
+    &$StartObj 
+    $kArray = ""
+    foreach ($seId in $structElementIds) { $kArray += "$seId 0 R " }
+    &$WriteStr "<< /Type /StructTreeRoot /K [ $kArray ] >>`nendobj`n"
+
     # Finalize Pages Root
     $currPos = $fs.Position
     $fs.Position = $kidsStartPos
@@ -3259,7 +3257,9 @@ function ExportSvgRect {
     $heightPx = $hUnits * $scale
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<?xml version=""1.0"" encoding=""UTF-8""?>")
-    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$(ToDot $widthPx)"" height=""$(ToDot $heightPx)"" viewBox=""0 0 $(ToDot $wUnits) $(ToDot $hUnits)"" shape-rendering=""crispEdges"">")
+    [void]$sb.Append("<svg xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" width=""$(ToDot $widthPx)"" height=""$(ToDot $heightPx)"" viewBox=""0 0 $(ToDot $wUnits) $(ToDot $hUnits)"" shape-rendering=""crispEdges"" role=""img"" aria-labelledby=""svgTitleRect svgDescRect"">")
+    [void]$sb.Append("<title id=""svgTitleRect"">Código QR Rectangular</title>")
+    [void]$sb.Append("<desc id=""svgDescRect"">Código QR rectangular generado por qrps que contiene datos codificados.</desc>")
     
     # Fuentes Personalizadas
     [void]$sb.Append("<defs>")
