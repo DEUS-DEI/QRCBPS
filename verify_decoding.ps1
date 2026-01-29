@@ -14,7 +14,7 @@ function Test-QRDecoding {
 
     Write-Host "`n--- Test 2: rMQR Decoding ---"
     $dataRMQR = "rMQR Test"
-    $rmqr = New-QRCode -Data $dataRMQR -Symbol 'rMQR' -Version 7 -ShowConsole:$false
+    $rmqr = New-QRCode -Data $dataRMQR -Symbol 'rMQR' -Version "R11x43" -ShowConsole:$false
     $decodedRMQR = Decode-RMQRMatrix $rmqr
     if ($decodedRMQR.Text -eq $dataRMQR) {
         Write-Host "SUCCESS: rMQR decoded correctly." -ForegroundColor Green
@@ -30,8 +30,8 @@ function Test-QRDecoding {
     $found = $false
     for ($r=0; $r -lt $qrRS.Size; $r++) {
         for ($c=0; $c -lt $qrRS.Size; $c++) {
-            if (-not $qrRS.Func["$r,$c"]) {
-                $qrRS.Mod["$r,$c"] = 1 - $qrRS.Mod["$r,$c"]
+            if (-not [bool]$qrRS.Func.GetValue($r,$c)) {
+                $qrRS.Mod.SetValue(1 - [int]$qrRS.Mod.GetValue($r,$c), $r, $c)
                 $found = $true
                 Write-Host "Introduced error at ($r,$c)"
                 break
@@ -57,10 +57,10 @@ function Test-QRDecoding {
         $full = @(1, 2, 3) + $ec
         $full[1] = $full[1] -bxor 0x55 # Introduce an error
         $corrected = Decode-ReedSolomon $full 2
-        if ($corrected[0] -eq 1 -and $corrected[1] -eq 2 -and $corrected[2] -eq 3) {
+        if ($corrected.Data[0] -eq 1 -and $corrected.Data[1] -eq 2 -and $corrected.Data[2] -eq 3) {
             Write-Host "SUCCESS: RS Direct Test passed."
         } else {
-            Write-Host "FAILURE: RS Direct Test failed."
+            Write-Host "FAILURE: RS Direct Test failed. Got $($corrected.Data -join ',')"
         }
     } catch {
         Write-Host "ERROR in Test 4: $($_.Exception.Message)"

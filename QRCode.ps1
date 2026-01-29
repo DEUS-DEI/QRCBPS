@@ -18,7 +18,7 @@ param(
     [Parameter(Mandatory=$false)][string]$OutputPath = "",
     [Parameter(Mandatory=$false)][string]$InputPath = "",
     [ValidateSet('L','M','Q','H')][string]$ECLevel = 'M',
-    [int]$Version = 0,
+    [object]$Version = 0,
     [int]$ModuleSize = 10,
     [int]$EciValue = 0,
     [ValidateSet('QR','Micro','rMQR','AUTO')][string]$Symbol = 'AUTO',
@@ -116,24 +116,26 @@ function NewMRect([int]$h, [int]$w) {
     }
 }
 function CopyM([hashtable]$m) {
-    [int]$h = if ($m.Height) { $m.Height } else { $m.Size }
-    [int]$w = if ($m.Width) { $m.Width } else { $m.Size }
-    [hashtable]$n = if ($m.Height) { NewMRect $h $w } else { NewM $h }
-    [Array]::Copy($m.Mod, $n.Mod, $m.Mod.Length)
-    [Array]::Copy($m.Func, $n.Func, $m.Func.Length)
+    [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
+    [hashtable]$n = if ($m['Height']) { NewMRect $h $w } else { NewM $h }
+    [Array]::Copy($m['Mod'], $n['Mod'], $m['Mod'].Length)
+    [Array]::Copy($m['Func'], $n['Func'], $m['Func'].Length)
     return $n
 }
-function SetM([hashtable]$m, [int]$r, [int]$c, [int]$v) { $m.Mod[$r,$c] = $v }
-function GetM([hashtable]$m, [int]$r, [int]$c) { return $m.Mod[$r,$c] }
+function SetM([hashtable]$m, [int]$r, [int]$c, [int]$v) { [int[,]]$mMod = $m['Mod']; $mMod.SetValue($v, $r, $c) }
+function GetM([hashtable]$m, [int]$r, [int]$c) { [int[,]]$mMod = $m['Mod']; return [int]$mMod.GetValue($r, $c) }
 function SetF([hashtable]$m, [int]$r, [int]$c, [bool]$v) {
-    [int]$h = if ($m.Height) { $m.Height } else { $m.Size }
-    [int]$w = if ($m.Width) { $m.Width } else { $m.Size }
+    [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
     if ($r -ge 0 -and $r -lt $h -and $c -ge 0 -and $c -lt $w) {
-        $m.Mod[$r,$c] = [int]$v; $m.Func[$r,$c] = $true
+        [int[,]]$mMod = $m['Mod']; [bool[,]]$mFunc = $m['Func']
+        $mMod.SetValue([int]$v, $r, $c); $mFunc.SetValue($true, $r, $c)
     }
 }
 function IsF([hashtable]$m, [int]$r, [int]$c) { 
-    return $m.Func[$r,$c]
+    [bool[,]]$mFunc = $m['Func']
+    return [bool]$mFunc.GetValue($r, $c)
 }
 
 function AddFinder([hashtable]$m, [int]$r, [int]$c) {
@@ -147,14 +149,14 @@ function AddFinder([hashtable]$m, [int]$r, [int]$c) {
             [int]$rr = $r + $dy; [int]$cc = $c + $dx
             [bool]$in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
             if (-not $in) {
-                if ($rr -ge 0 -and $rr -lt $h -and $cc -ge 0 -and $cc -lt $w) { $mFunc[$rr,$cc] = $true }
+                if ($rr -ge 0 -and $rr -lt $h -and $cc -ge 0 -and $cc -lt $w) { $mFunc.SetValue($true, $rr, $cc) }
                 continue
             }
             [bool]$on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
             [bool]$cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
             [bool]$v = ($on -or $cent)
             if ($rr -ge 0 -and $rr -lt $h -and $cc -ge 0 -and $cc -lt $w) {
-                $mMod[$rr,$cc] = [int]$v; $mFunc[$rr,$cc] = $true
+                $mMod.SetValue([int]$v, $rr, $cc); $mFunc.SetValue($true, $rr, $cc)
             }
         }
     }
@@ -166,11 +168,11 @@ function AddAlign([hashtable]$m, [int]$r, [int]$c) {
     for ([int]$dy = -2; $dy -le 2; $dy++) {
         for ([int]$dx = -2; $dx -le 2; $dx++) {
             [int]$rr = $r + $dy; [int]$cc = $c + $dx
-            if ($mFunc[$rr,$cc]) { continue }
+            if ([bool]$mFunc.GetValue($rr, $cc)) { continue }
             [bool]$on = [Math]::Abs($dy) -eq 2 -or [Math]::Abs($dx) -eq 2
             [bool]$cent = $dy -eq 0 -and $dx -eq 0
             [bool]$v = ($on -or $cent)
-            $mMod[$rr,$cc] = [int]$v; $mFunc[$rr,$cc] = $true
+            $mMod.SetValue([int]$v, $rr, $cc); $mFunc.SetValue($true, $rr, $cc)
         }
     }
 }
@@ -217,74 +219,115 @@ function Poly-Eval-GF([int[]]$p, [int]$x) {
 }
 
 function ReadRMQRFormatInfo([hashtable]$m) {
-    # TL: Use columns 7, 8, 9 (rows 0-5)
-    [int[,]]$mMod = $m.Mod
-    [System.Collections.Generic.List[int]]$bits = New-Object System.Collections.Generic.List[int]
-    for([int]$i=0; $i -lt 6; $i++){ $bits.Add($mMod[$i,7]) }
-    for([int]$i=0; $i -lt 6; $i++){ $bits.Add($mMod[$i,8]) }
-    for([int]$i=0; $i -lt 6; $i++){ $bits.Add($mMod[$i,9]) }
+    if ($null -eq $m) { Write-Error "ReadRMQRFormatInfo: m is null"; return $null }
+    [int[,]]$mMod = $m['Mod']
+    [int]$h = if ($m.ContainsKey('Height')) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m.ContainsKey('Width')) { $m['Width'] } else { $m['Size'] }
+    if ($null -eq $mMod) { Write-Error "ReadRMQRFormatInfo: m['Mod'] is null"; return $null }
+
+    # Intentar leer TL (Top-Left)
+    [int[]]$tlBits = @()
+    for([int]$i=0; $i -lt 6; $i++){ $tlBits += [int]$mMod.GetValue($i,7) }
+    for([int]$i=0; $i -lt 6; $i++){ $tlBits += [int]$mMod.GetValue($i,8) }
+    for([int]$i=0; $i -lt 6; $i++){ $tlBits += [int]$mMod.GetValue($i,9) }
     
-    # Unmask with TL mask
-    [int[]]$mask = $script:RMQR_FMT_MASKS.TL
-    for([int]$i=0; $i -lt 18; $i++){ $bits[$i] = $bits[$i] -bxor $mask[$i] }
+    # Desenmascarar TL
+    [int[]]$tlMask = $script:RMQR_FMT_MASKS['TL']
+    for([int]$i=0; $i -lt 18; $i++){ $tlBits[$i] = $tlBits[$i] -bxor $tlMask[$i] }
+
+    # Intentar leer BR (Bottom-Right)
+    [int[]]$brBits = @()
+    for([int]$i=0; $i -lt 6; $i++){ $brBits += [int]$mMod.GetValue($h - 6 + $i, $w - 11) }
+    for([int]$i=0; $i -lt 6; $i++){ $brBits += [int]$mMod.GetValue($h - 6 + $i, $w - 10) }
+    for([int]$i=0; $i -lt 6; $i++){ $brBits += [int]$mMod.GetValue($h - 6 + $i, $w - 9) }
+
+    # Desenmascarar BR
+    [int[]]$brMask = $script:RMQR_FMT_MASKS['BR']
+    for([int]$i=0; $i -lt 18; $i++){ $brBits[$i] = $brBits[$i] -bxor $brMask[$i] }
+
+    # Función local para parsear bits
+    $parse = {
+        param([int[]]$b)
+        [int]$ecBit = $b[0]
+        [int]$vi = 0; for([int]$i=1; $i -le 5; $i++){ $vi = ($vi -shl 1) -bor $b[$i] }
+        return @{ EC = if($ecBit -eq 1){'H'}else{'M'}; VI = $vi }
+    }
+
+    # Por ahora, confiamos en TL si parece razonable (VI < 32), si no, BR
+    $fi = &$parse $tlBits
+    if ($fi.VI -ge 32) {
+        $fi = &$parse $brBits
+    }
     
-    # Format info: [EC(1), VI(5), BCH(12)]
-    [int]$ecBit = $bits[0]
-    [int]$vi = 0; for([int]$i=1; $i -le 5; $i++){ $vi = ($vi -shl 1) -bor $bits[$i] }
-    
-    return @{ EC = if($ecBit -eq 1){'H'}else{'M'}; VI = $vi }
+    # Debug opcional
+    # Write-Status "ReadRMQRFormatInfo: VI=$($fi.VI), EC=$($fi.EC)"
+    return $fi
 }
 
 function UnmaskRMQR([hashtable]$m) {
-    [int]$h = if ($m.Height) { $m.Height } else { $m.Size }
-    [int]$w = if ($m.Width) { $m.Width } else { $m.Size }
-    [hashtable]$r = if ($m.Height) { NewMRect $h $w } else { NewM $h }
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
-    [int[,]]$rMod = $r.Mod
-    [bool[,]]$rFunc = $r.Func
+    if ($null -eq $m) { Write-Error "UnmaskRMQR: m is null"; return $null }
+    [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
+    [hashtable]$r = if ($m['Height']) { NewMRect $h $w } else { NewM $h }
+    [int[,]]$mMod = $m['Mod']
+    [bool[,]]$mFunc = $m['Func']
+    if ($null -eq $mMod -or $null -eq $mFunc) { Write-Error "UnmaskRMQR: matrix data is null"; return $null }
+    [int[,]]$rMod = $r['Mod']
+    [bool[,]]$rFunc = $r['Func']
 
     for ([int]$row = 0; $row -lt $h; $row++) {
         for ([int]$col = 0; $col -lt $w; $col++) {
-            $rFunc[$row,$col] = $mFunc[$row,$col]
-            [int]$v = $mMod[$row,$col]
-            if (-not $mFunc[$row,$col]) {
+            $rFunc.SetValue([bool]$mFunc.GetValue($row,$col), $row, $col)
+            [int]$v = [int]$mMod.GetValue($row,$col)
+            if (-not [bool]$mFunc.GetValue($row,$col)) {
                 if ((($row + $col) % 2) -eq 0) { $v = 1 - $v }
             }
-            $rMod[$row,$col] = $v
+            $rMod.SetValue($v, $row, $col)
         }
     }
     return $r
 }
 
 function ExtractBitsRMQR([hashtable]$m) {
-    [System.Collections.Generic.List[int]]$bits = New-Object System.Collections.Generic.List[int]
+    if ($null -eq $m) { Write-Error "ExtractBitsRMQR: m is null"; return $null }
+    [System.Collections.Generic.List[int]]$bits = New-Object "System.Collections.Generic.List[int]"
     [bool]$up = $true
-    [int]$h = if ($m.Height) { $m.Height } else { $m.Size }
-    [int]$w = if ($m.Width) { $m.Width } else { $m.Size }
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int]$h = if ($m.ContainsKey('Height')) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m.ContainsKey('Width')) { $m['Width'] } else { $m['Size'] }
+    [int[,]]$mMod = $m['Mod']
+    [bool[,]]$mFunc = $m['Func']
+    if ($null -eq $mMod -or $null -eq $mFunc) { Write-Error "ExtractBitsRMQR: matrix data is null"; return $null }
 
     for ([int]$right = $w - 1; $right -ge 1; $right -= 2) {
-        if ($right -eq 6) { $right = 5 }
         if ($up) {
             for ([int]$row = $h - 1; $row -ge 0; $row--) {
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not $mFunc[$row,$col]) { $bits.Add($mMod[$row,$col]) }
+                    if ($col -ge 0) {
+                        if (-not [bool]$mFunc.GetValue($row, $col)) {
+                            [void]$bits.Add([int]$mMod.GetValue($row, $col))
+                        }
+                    }
                 }
             }
         } else {
             for ([int]$row = 0; $row -lt $h; $row++) {
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not $mFunc[$row,$col]) { $bits.Add($mMod[$row,$col]) }
+                    if ($col -ge 0) {
+                        if (-not [bool]$mFunc.GetValue($row, $col)) {
+                            [void]$bits.Add([int]$mMod.GetValue($row, $col))
+                        }
+                    }
                 }
             }
         }
         $up = -not $up
     }
-    return $bits
+    # DEBUG
+     Write-Status "ExtractBitsRMQR: Total bits extracted: $($bits.Count)"
+     Write-Status "ExtractBitsRMQR: First 16 bits: $(($bits | select -first 16) -join '')"
+     return $bits
 }
 
 function Get-EncodingFromECI($eci) {
@@ -322,9 +365,9 @@ function Get-EncodingFromECI($eci) {
     }
 }
 
-function DecodeRMQRStream([byte[]]$bytes, [hashtable]$spec) {
+function DecodeRMQRStream([int[]]$dataBytes, [hashtable]$spec) {
     [System.Collections.Generic.List[int]]$bits = New-Object System.Collections.Generic.List[int]
-    foreach ($b in $bytes) { for ([int]$i=7;$i -ge 0;$i--){ $bits.Add([int](($b -shr $i) -band 1)) } }
+    foreach ($b in $dataBytes) { for ([int]$i=7;$i -ge 0;$i--){ [void]$bits.Add([int](($b -shr $i) -band 1)) } }
     [int]$idx = 0
     [string]$resultTxt = ""
     [array]$segs = @()
@@ -333,7 +376,7 @@ function DecodeRMQRStream([byte[]]$bytes, [hashtable]$spec) {
     
     while ($idx + 3 -le $bits.Count) {
         [int]$mi = ($bits[$idx] -shl 2) -bor ($bits[$idx+1] -shl 1) -bor $bits[$idx+2]
-        # Write-Status "Debug: mi=$mi at idx=$idx bits=$($bits[$idx..($idx+2)] -join '')"
+        Write-Status "Stream: idx=$idx, mi=$mi"
         $idx += 3
         if ($mi -eq 0) { break }
         if ($mi -eq 7) { # ECI
@@ -424,90 +467,127 @@ function DecodeRMQRStream([byte[]]$bytes, [hashtable]$spec) {
 }
 
 function InitRMQRMatrix([hashtable]$spec) {
-    [string]$cacheKey = "RMQR-$($spec.H)x$($spec.W)"
+    [string]$cacheKey = "RMQR-$($spec['H'])x$($spec['W'])"
     if ($script:MATRIX_CACHE.ContainsKey($cacheKey)) {
         return CopyM $script:MATRIX_CACHE[$cacheKey]
     }
 
-    [int]$h = $spec.H; [int]$w = $spec.W
+    [int]$h = $spec['H']; [int]$w = $spec['W']
     [hashtable]$m = NewMRect $h $w
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int[,]]$mMod = $m['Mod']
+    [bool[,]]$mFunc = $m['Func']
     
-    # Finder Patterns (TL and BR)
-    for ([int]$dy = -1; $dy -le 7; $dy++) { 
-        for ([int]$dx = -1; $dx -le 7; $dx++) { 
-            # Top-Left
-            [int]$rr = 0 + $dy; [int]$cc = 0 + $dx
-            if ($rr -ge 0 -and $cc -ge 0 -and $rr -lt $h -and $cc -lt $w) {
-                [bool]$in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
-                if (-not $in) { $mFunc[$rr,$cc]=$true; continue }
-                [bool]$on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
-                [bool]$cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
-                [bool]$v = ($on -or $cent)
-                $mMod[$rr,$cc] = [int]$v; $mFunc[$rr,$cc] = $true
-            }
-            # Bottom-Right
-            $rr = ($h - 7) + $dy; $cc = ($w - 7) + $dx
-            if ($rr -ge 0 -and $cc -ge 0 -and $rr -lt $h -and $cc -lt $w) {
-                [bool]$in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
-                if (-not $in) { $mFunc[$rr,$cc]=$true; continue }
-                [bool]$on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
-                [bool]$cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
-                [bool]$v = ($on -or $cent)
-                $mMod[$rr,$cc] = [int]$v; $mFunc[$rr,$cc] = $true
+    # 1. Finder Pattern (7x7) at (0,0)
+    for ([int]$r = 0; $r -lt 7; $r++) {
+        for ([int]$c = 0; $c -lt 7; $c++) {
+            $mFunc.SetValue($true, $r, $c)
+            [bool]$on = ($r -eq 0 -or $r -eq 6 -or $c -eq 0 -or $c -eq 6) -or 
+                        ($r -ge 2 -and $r -le 4 -and $c -ge 2 -and $c -le 4)
+            $mMod.SetValue([int]$on, $r, $c)
+        }
+    }
+    # Separador FP: Solo en el lado derecho para rMQR (ISO 23941 7.3.3)
+    # Solo hasta la fila 6, ya que no hay separador horizontal en la fila 7
+    for ([int]$i = 0; $i -le 6; $i++) {
+        if ($i -lt $h -and 7 -lt $w) { $mFunc.SetValue($true, $i, 7) }
+    }
+
+    # 2. Finder Sub-pattern (5x5) at (h-5, w-5)
+    [int]$fspR = $h - 5; [int]$fspC = $w - 5
+    for ([int]$r = 0; $r -lt 5; $r++) {
+        for ([int]$c = 0; $c -lt 5; $c++) {
+            $mFunc.SetValue($true, $fspR + $r, $fspC + $c)
+            [bool]$on = ($r -eq 0 -or $r -eq 4 -or $c -eq 0 -or $c -eq 4) -or ($r -eq 2 -and $c -eq 2)
+            $mMod.SetValue([int]$on, $fspR + $r, $fspC + $c)
+        }
+    }
+    # rMQR Finder Sub-pattern NO tiene separador según ISO 23941
+
+    # 3. Timing Patterns
+    # Horizontal: Row 0, 6, h-1
+    for ([int]$c = 0; $c -lt $w; $c++) {
+        [int]$v = 1 - ($c % 2)
+        if (-not [bool]$mFunc.GetValue(0, $c)) { $mMod.SetValue($v, 0, $c); $mFunc.SetValue($true, 0, $c) }
+        if (-not [bool]$mFunc.GetValue(6, $c)) { $mMod.SetValue($v, 6, $c); $mFunc.SetValue($true, 6, $c) }
+        if (-not [bool]$mFunc.GetValue($h - 1, $c)) { $mMod.SetValue($v, $h - 1, $c); $mFunc.SetValue($true, $h - 1, $c) }
+    }
+    # Vertical: Col 0, 6, w-1
+    for ([int]$r = 0; $r -lt $h; $r++) {
+        [int]$v = 1 - ($r % 2)
+        if (-not [bool]$mFunc.GetValue($r, 0)) { $mMod.SetValue($v, $r, 0); $mFunc.SetValue($true, $r, 0) }
+        if (-not [bool]$mFunc.GetValue($r, 6)) { $mMod.SetValue($v, $r, 6); $mFunc.SetValue($true, $r, 6) }
+        if (-not [bool]$mFunc.GetValue($r, $w - 1)) { $mMod.SetValue($v, $r, $w - 1); $mFunc.SetValue($true, $r, $w - 1) }
+    }
+    
+    # 4. Alignment Patterns (Columnas específicas de timing)
+    [int[]]$apCols = @()
+    if ($w -eq 43) { $apCols = @(21) }
+    elseif ($w -eq 59) { $apCols = @(31) }
+    elseif ($w -eq 77) { $apCols = @(41) }
+    elseif ($w -eq 99) { $apCols = @(31, 61) }
+    elseif ($w -eq 139) { $apCols = @(31, 61, 91) }
+    
+    foreach ($ac in $apCols) {
+        for ([int]$ar = 0; $ar -lt $h; $ar++) {
+            if (-not [bool]$mFunc.GetValue($ar, $ac)) {
+                $mMod.SetValue((1 - ($ar % 2)), $ar, $ac); $mFunc.SetValue($true, $ar, $ac)
             }
         }
     }
-    
-    # Timing patterns
-    for ([int]$c = 7; $c -lt $w; $c++) { 
-        [bool]$v = ($c % 2) -eq 0
-        if (-not $mFunc[6,$c]) { $mMod[6,$c] = [int]$v; $mFunc[6,$c] = $true } 
+
+    # 5. Format Info areas
+    # TL: Columns 7, 8, 9 (rows 0-5)
+    for ([int]$i=0;$i -lt 6;$i++){ $mFunc.SetValue($true, $i, 7); $mFunc.SetValue($true, $i, 8); $mFunc.SetValue($true, $i, 9) }
+    # BR: Columns w-11, w-10, w-9 (rows h-6 to h-1)
+    for ([int]$i=0;$i -lt 6;$i++){ 
+        [int]$row = $h - 6 + $i
+        $mFunc.SetValue($true, $row, ($w-11)); $mFunc.SetValue($true, $row, ($w-10)); $mFunc.SetValue($true, $row, ($w-9)) 
     }
-    for ([int]$r = 7; $r -lt $h; $r++) { 
-        [bool]$v = ($r % 2) -eq 0
-        if (-not $mFunc[$r,6]) { $mMod[$r,6] = [int]$v; $mFunc[$r,6] = $true } 
-    }
-    
-    # Format Info areas (TL and BR)
-    # TL: Use columns 7, 8, 9 (rows 0-5)
-    for ([int]$i=0;$i -lt 6;$i++){ $mFunc[$i,7]=$true; $mFunc[$i,8]=$true; $mFunc[$i,9]=$true }
-    # BR: Use columns w-8, w-9, w-10 (rows 0-5)
-    for ([int]$i=0;$i -lt 6;$i++){ $mFunc[$i,($w-8)]=$true; $mFunc[$i,($w-9)]=$true; $mFunc[$i,($w-10)]=$true }
-    
-    # Guardar en cache antes de retornar
+
+    # DEBUG: Count functional modules
+    [int]$fCount = 0
+    for($r=0;$r -lt $h;$r++){ for($c=0;$c -lt $w;$c++){ if([bool]$mFunc.GetValue($r,$c)){ $fCount++ } } }
+    Write-Status "InitRMQRMatrix: $cacheKey - Functional modules: $fCount, Data modules: $($h*$w - $fCount)"
+
     $script:MATRIX_CACHE[$cacheKey] = CopyM $m
     return $m
 }
 
 function Decode-RMQRMatrix([hashtable]$m) {
+    if ($null -eq $m) { Write-Error "Decode-RMQRMatrix: m is null"; return $null }
     [hashtable]$fi = ReadRMQRFormatInfo $m
+    if ($null -eq $fi) { return $null }
     [hashtable]$spec = $null
-    foreach($k in $script:RMQR_SPEC.Keys){ if($script:RMQR_SPEC[$k].VI -eq $fi.VI){ $spec = $script:RMQR_SPEC[$k]; break } }
-    if(-not $spec){ throw "Versión rMQR no soportada: VI=$($fi.VI)" }
+    foreach($k in $script:RMQR_SPEC.Keys){ if($script:RMQR_SPEC[$k]['VI'] -eq $fi['VI']){ $spec = $script:RMQR_SPEC[$k]; break } }
+    if(-not $spec){ throw "Versión rMQR no soportada: VI=$($fi['VI'])" }
     
     # Marcar módulos funcionales para que UnmaskRMQR funcione correctamente
     [hashtable]$temp = InitRMQRMatrix $spec
-    $m.Func = $temp.Func
+    if ($null -eq $temp) { throw "InitRMQRMatrix returned null" }
+    $m['Func'] = $temp['Func']
     
     [hashtable]$um = UnmaskRMQR $m
+    if ($null -eq $um) { return $null }
     [System.Collections.Generic.List[int]]$bits = ExtractBitsRMQR $um
-    # Write-Status "Debug bits: $($bits[0..23] -join '')"
+    if ($null -eq $bits) { return $null }
+    Write-Status "Extraídos $($bits.Count) bits de la matriz."
     
     [System.Collections.Generic.List[int]]$allBytes = New-Object System.Collections.Generic.List[int]
     for ([int]$i=0;$i -lt $bits.Count; $i += 8) {
-        [int]$byte = 0; for ([int]$j=0;$j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i+$j] }
-        $allBytes.Add($byte)
+        if ($i + 8 -le $bits.Count) {
+            [int]$byte = 0; for ([int]$j=0;$j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i+$j] }
+            $allBytes.Add($byte)
+        }
     }
+    Write-Status "Convertidos a $($allBytes.Count) bytes."
 
-    [hashtable]$de = if ($fi.EC -eq 'H') { $spec.H2 } else { $spec.M }
-    [int]$eccLen = $de.E
+    [hashtable]$de = if ($fi['EC'] -eq 'H') { $spec['H2'] } else { $spec['M'] }
+    [int]$eccLen = $de['E']
     [int]$blocks = 1
     if ($eccLen -ge 36 -and $eccLen -lt 80) { $blocks = 2 } elseif ($eccLen -ge 80) { $blocks = 4 }
     
     # Deinterleave rMQR: Data portion first, then EC portion
-    [int]$dataLen = $de.D
+    [int]$dataLen = $de['D']
     [int[]]$dataBytesInterleaved = $allBytes[0..($dataLen - 1)]
     [int[]]$ecBytesInterleaved = $allBytes[$dataLen..($dataLen + $eccLen - 1)]
     
@@ -553,12 +633,12 @@ function Decode-RMQRMatrix([hashtable]$m) {
         $fullBlock = $dataBlocks[$bix] + $ecBlocks[$bix]
         $res = Decode-ReedSolomon $fullBlock $ecBlocks[$bix].Count
         if($null -eq $res){ throw "Error RS irreparable en bloque rMQR $bix" }
-        $dataBytes += $res.Data
-        $totalErrors += $res.Errors
+        $dataBytes += $res['Data']
+        $totalErrors += $res['Errors']
     }
 
     $dec = DecodeRMQRStream $dataBytes $spec
-    $dec.Errors = $totalErrors
+    $dec['Errors'] = $totalErrors
     return $dec
 }
 
@@ -596,17 +676,19 @@ function Import-QRCode($path) {
         $width = $wUnits - 2 * $quiet
         $height = $hUnits - 2 * $quiet
         
-        $m = NewMRect $height $width
+        [hashtable]$m = NewMRect $height $width
+        [int[,]]$mMod = $m.Mod
+        [bool[,]]$mFunc = $m.Func
         foreach($r in $rects) {
-            $col = [int][double]$r.Attributes["x"].Value - $quiet
-            $row = [int][double]$r.Attributes["y"].Value - $quiet
+            [int]$col = [int][double]$r.Attributes["x"].Value - $quiet
+            [int]$row = [int][double]$r.Attributes["y"].Value - $quiet
             if ($row -ge 0 -and $row -lt $height -and $col -ge 0 -and $col -lt $width) {
-                $m.Mod[$row,$col] = 1
+                $mMod.SetValue(1, $row, $col)
             }
         }
-        for($r=0; $r -lt $height; $r++) {
-            for($c=0; $c -lt $width; $c++) {
-                $m.Func[$r,$c] = $false 
+        for([int]$r=0; $r -lt $height; $r++) {
+            for([int]$c=0; $c -lt $width; $c++) {
+                $mFunc.SetValue($false, $r, $c)
             }
         }
         return $m
@@ -614,12 +696,12 @@ function Import-QRCode($path) {
         Add-Type -AssemblyName System.Drawing
         $bmp = New-Object Drawing.Bitmap $path
         try {
-            $w = $bmp.Width; $h = $bmp.Height
+            [int]$w = $bmp.Width; [int]$h = $bmp.Height
             
             # 1. Encontrar el primer pixel negro
-            $found = $false; $x0 = 0; $y0 = 0
-            for($y=0; $y -lt $h; $y++) {
-                for($x=0; $x -lt $w; $x++) {
+            [bool]$found = $false; [int]$x0 = 0; [int]$y0 = 0
+            for([int]$y=0; $y -lt $h; $y++) {
+                for([int]$x=0; $x -lt $w; $x++) {
                     if($bmp.GetPixel($x, $y).R -lt 128) { $x0 = $x; $y0 = $y; $found = $true; break }
                 }
                 if($found){ break }
@@ -627,40 +709,42 @@ function Import-QRCode($path) {
             if(-not $found){ throw "No se encontró código QR en la imagen" }
             
             # 2. Detectar escala usando el GCD de las rachas de pixeles
-            $runs = @()
-            $currentLen = 0; $currentVal = -1
+            [System.Collections.Generic.List[int]]$runs = New-Object System.Collections.Generic.List[int]
+            [int]$currentLen = 0; [int]$currentVal = -1
             # Escanear una fila que sepamos que tiene datos
-            for($x = 0; $x -lt $w; $x++) {
-                $v = if($bmp.GetPixel($x, $y0).R -lt 128){ 1 } else { 0 }
+            for([int]$x = 0; $x -lt $w; $x++) {
+                [int]$v = if($bmp.GetPixel($x, $y0).R -lt 128){ 1 } else { 0 }
                 if($v -eq $currentVal) { $currentLen++ }
                 else {
-                    if($currentVal -ne -1){ $runs += $currentLen }
+                    if($currentVal -ne -1){ [void]$runs.Add($currentLen) }
                     $currentVal = $v; $currentLen = 1
                 }
             }
-            $runs += $currentLen
+            [void]$runs.Add($currentLen)
             
-            $gcd = { param($a,$b) while($b){$t=$a;$a=$b;$b=$t%$b}; $a }
-            $scale = $runs[0]
-            foreach($r in $runs){ if($r -gt 0){ $scale = &$gcd $scale $r } }
+            $gcd = { param([int]$a,[int]$b) while($b){$t=$a;$a=$b;$b=$t%$b}; $a }
+            [int]$scale = $runs[0]
+            foreach($run in $runs){ if($run -gt 0){ $scale = &$gcd $scale $run } }
             
             # 3. Reconstruir matriz
-            $quietX = [Math]::Round($x0 / $scale)
-            $quietY = [Math]::Round($y0 / $scale)
-            $modW = [Math]::Round($w / $scale) - 2 * $quietX
-            $modH = [Math]::Round($h / $scale) - 2 * $quietY
+            [int]$quietX = [int][Math]::Round($x0 / $scale)
+            [int]$quietY = [int][Math]::Round($y0 / $scale)
+            [int]$modW = [int][Math]::Round($w / $scale) - 2 * $quietX
+            [int]$modH = [int][Math]::Round($h / $scale) - 2 * $quietY
             
-            $m = NewMRect $modH $modW
-            for($r=0; $r -lt $modH; $r++) {
-                for($c=0; $c -lt $modW; $c++) {
-                    $sampleX = ($c + $quietX) * $scale + [Math]::Floor($scale / 2)
-                    $sampleY = ($r + $quietY) * $scale + [Math]::Floor($scale / 2)
+            [hashtable]$m = NewMRect $modH $modW
+            [int[,]]$mMod = $m.Mod
+            [bool[,]]$mFunc = $m.Func
+            for([int]$r=0; $r -lt $modH; $r++) {
+                for([int]$c=0; $c -lt $modW; $c++) {
+                    [int]$sampleX = ($c + $quietX) * $scale + [int][Math]::Floor($scale / 2)
+                    [int]$sampleY = ($r + $quietY) * $scale + [int][Math]::Floor($scale / 2)
                     if ($sampleX -lt $w -and $sampleY -lt $h) {
-                        $m.Mod[$r,$c] = if($bmp.GetPixel($sampleX, $sampleY).R -lt 128){ 1 } else { 0 }
+                        $mMod.SetValue((if($bmp.GetPixel($sampleX, $sampleY).R -lt 128){ 1 } else { 0 }), $r, $c)
                     } else {
-                        $m.Mod[$r,$c] = 0
+                        $mMod.SetValue(0, $r, $c)
                     }
-                    $m.Func[$r,$c] = $false
+                    $mFunc.SetValue($false, $r, $c)
                 }
             }
             return $m
@@ -1073,13 +1157,13 @@ function InitMicroM([string]$ver) {
     AddFinder $m 0 0
     for ([int]$i = 7; $i -lt $size; $i++) {
         [bool]$v = ($i % 2) -eq 0
-        if (-not $mFunc[6,$i]) { $mMod[6,$i] = [int]$v; $mFunc[6,$i] = $true }
-        if (-not $mFunc[$i,6]) { $mMod[$i,6] = [int]$v; $mFunc[$i,6] = $true }
+        if (-not [bool]$mFunc.GetValue(6, $i)) { $mMod.SetValue([int]$v, 6, $i); $mFunc.SetValue($true, 6, $i) }
+        if (-not [bool]$mFunc.GetValue($i, 6)) { $mMod.SetValue([int]$v, $i, 6); $mFunc.SetValue($true, $i, 6) }
     }
     for ([int]$i = 0; $i -lt 9; $i++) {
         if ($i -lt $size) {
-            if (-not $mFunc[8,$i]) { $mFunc[8,$i] = $true }
-            if (-not $mFunc[$i,8]) { $mFunc[$i,8] = $true }
+            if (-not [bool]$mFunc.GetValue(8, $i)) { $mFunc.SetValue($true, 8, $i) }
+            if (-not [bool]$mFunc.GetValue($i, 8)) { $mFunc.SetValue($true, $i, 8) }
         }
     }
     
@@ -1096,10 +1180,10 @@ function GetMicroTotalCw([string]$ver) {
     
     for ([int]$r = 0; $r -lt $size; $r++) {
         for ([int]$c = 0; $c -lt $size; $c++) {
-            if (-not $mFunc[$r,$c]) { $dataModules++ }
+            if (-not [bool]$mFunc.GetValue($r, $c)) { $dataModules++ }
         }
     }
-    return [Math]::Floor($dataModules / 8)
+    return [int][Math]::Floor($dataModules / 8)
 }
 
 function AddFormatMicro($m, $ec, $mask) {
@@ -1132,47 +1216,47 @@ function FindBestMaskMicro($m) {
 }
 
 function MicroEncode([string]$txt, [string]$ver, [string]$ec, [string]$mode) {
-    $bits = New-Object System.Collections.ArrayList
+    $bits = New-Object "System.Collections.Generic.List[int]"
     $mi = GetMicroModeInfo $ver $mode
-    if ($mi.Len -gt 0) {
-        for ($b = $mi.Len - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($mi.Val -shr $b) -band 1)) }
+    if ([int]$mi.Len -gt 0) {
+        for ([int]$b = [int]$mi.Len - 1; $b -ge 0; $b--) { [void]$bits.Add([int](([int]$mi.Val -shr $b) -band 1)) }
     }
-    $cb = GetMicroCountBits $ver $mode
-    $count = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($txt) } else { $txt.Length }
-    for ($i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($count -shr $i) -band 1)) }
+    [int]$cb = GetMicroCountBits $ver $mode
+    [int]$count = if ($mode -eq 'B') { [System.Text.Encoding]::UTF8.GetByteCount($txt) } else { $txt.Length }
+    for ([int]$i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($count -shr $i) -band 1)) }
     switch ($mode) {
         'N' {
-            for ($i = 0; $i -lt $txt.Length; $i += 3) {
-                $ch = $txt.Substring($i, [Math]::Min(3, $txt.Length - $i))
-                $v = [int]$ch; $nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
-                for ($b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+            for ([int]$i = 0; $i -lt $txt.Length; $i += 3) {
+                [string]$ch = $txt.Substring($i, [Math]::Min(3, $txt.Length - $i))
+                [int]$v = [int]$ch; [int]$nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
+                for ([int]$b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
             }
         }
         'A' {
-            for ($i = 0; $i -lt $txt.Length; $i += 2) {
+            for ([int]$i = 0; $i -lt $txt.Length; $i += 2) {
                 if ($i + 1 -lt $txt.Length) {
-                    $v = $script:ALPH.IndexOf($txt[$i]) * 45 + $script:ALPH.IndexOf($txt[$i+1])
-                    for ($b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                    [int]$v = $script:ALPH.IndexOf($txt[$i]) * 45 + $script:ALPH.IndexOf($txt[$i+1])
+                    for ([int]$b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
                 } else {
-                    $v = $script:ALPH.IndexOf($txt[$i])
-                    for ($b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                    [int]$v = $script:ALPH.IndexOf($txt[$i])
+                    for ([int]$b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
                 }
             }
         }
         'B' {
-            foreach ($byte in [Text.Encoding]::UTF8.GetBytes($txt)) {
-                for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($byte -shr $b) -band 1)) }
+            foreach ($byte in [System.Text.Encoding]::UTF8.GetBytes($txt)) {
+                for ([int]$b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](([int]$byte -shr $b) -band 1)) }
             }
         }
         'K' {
-            $sjis = [System.Text.Encoding]::GetEncoding(932)
-            $bytes = $sjis.GetBytes($txt)
-            for ($i = 0; $i -lt $bytes.Length; $i += 2) {
-                $val = ([int]$bytes[$i] -shl 8) -bor [int]$bytes[$i+1]
+            [System.Text.Encoding]$sjis = [System.Text.Encoding]::GetEncoding(932)
+            [byte[]]$bytes = $sjis.GetBytes($txt)
+            for ([int]$i = 0; $i -lt $bytes.Length; $i += 2) {
+                [int]$val = ([int]$bytes[$i] -shl 8) -bor [int]$bytes[$i+1]
                 if ($val -ge 0x8140 -and $val -le 0x9FFC) { $val -= 0x8140 }
                 elseif ($val -ge 0xE040 -and $val -le 0xEBBF) { $val -= 0xC140 }
                 $val = (($val -shr 8) * 0xC0) + ($val -band 0xFF)
-                for ($b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                for ([int]$b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
             }
         }
     }
@@ -1271,136 +1355,136 @@ function Get-Segment([string]$txt) {
 }
 
 function Encode([array]$segments, [int]$ver, [string]$ec) {
-    $bits = New-Object System.Collections.ArrayList
+    [System.Collections.Generic.List[int]]$bits = New-Object "System.Collections.Generic.List[int]"
     
     foreach ($seg in $segments) {
-        $mode = $seg.Mode
-        $txt = $seg.Data
+        [string]$mode = $seg.Mode
+        [string]$txt = $seg.Data
         
         # Mode Indicator
         switch ($mode) { 
-            'N'{[void]$bits.AddRange(@(0,0,0,1))} 
-            'A'{[void]$bits.AddRange(@(0,0,1,0))} 
-            'B'{[void]$bits.AddRange(@(0,1,0,0))}
-            'K'{[void]$bits.AddRange(@(1,0,0,0))}
-            'ECI'{[void]$bits.AddRange(@(0,1,1,1))}
-            'SA'{[void]$bits.AddRange(@(0,0,1,1))}
-            'F1'{[void]$bits.AddRange(@(0,1,0,1))}
-            'F2'{[void]$bits.AddRange(@(1,0,0,1))}
+            'N'{ [void]$bits.Add(0); [void]$bits.Add(0); [void]$bits.Add(0); [void]$bits.Add(1) } 
+            'A'{ [void]$bits.Add(0); [void]$bits.Add(0); [void]$bits.Add(1); [void]$bits.Add(0) } 
+            'B'{ [void]$bits.Add(0); [void]$bits.Add(1); [void]$bits.Add(0); [void]$bits.Add(0) }
+            'K'{ [void]$bits.Add(1); [void]$bits.Add(0); [void]$bits.Add(0); [void]$bits.Add(0) }
+            'ECI'{ [void]$bits.Add(0); [void]$bits.Add(1); [void]$bits.Add(1); [void]$bits.Add(1) }
+            'SA'{ [void]$bits.Add(0); [void]$bits.Add(0); [void]$bits.Add(1); [void]$bits.Add(1) }
+            'F1'{ [void]$bits.Add(0); [void]$bits.Add(1); [void]$bits.Add(0); [void]$bits.Add(1) }
+            'F2'{ [void]$bits.Add(1); [void]$bits.Add(0); [void]$bits.Add(0); [void]$bits.Add(1) }
         }
         
         if ($mode -eq 'ECI') {
             # ECI Assignment Value (0-999999)
-            $val = [int]$txt
+            [int]$val = [int]$txt
             if ($val -lt 128) {
-                for ($b=7; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                for ([int]$b=7; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
             } elseif ($val -lt 16384) {
-                [void]$bits.AddRange(@(1,0)) # First 2 bits 10
-                for ($b=13; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                [void]$bits.Add(1); [void]$bits.Add(0) # First 2 bits 10
+                for ([int]$b=13; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
             } else {
-                 [void]$bits.AddRange(@(1,1,0)) # First 3 bits 110
-                 for ($b=20; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                 [void]$bits.Add(1); [void]$bits.Add(1); [void]$bits.Add(0) # First 3 bits 110
+                 for ([int]$b=20; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
             }
             continue # Next segment
         }
         
         if ($mode -eq 'SA') {
-            $idx = [int]$seg.Index
-            $total = [int]$seg.Total
-            $par = [int]$seg.Parity
-            $totalEnc = $total - 1
-            for ($b = 3; $b -ge 0; $b--) { [void]$bits.Add([int](($idx -shr $b) -band 1)) }
-            for ($b = 3; $b -ge 0; $b--) { [void]$bits.Add([int](($totalEnc -shr $b) -band 1)) }
-            for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($par -shr $b) -band 1)) }
+            [int]$idx = [int]$seg.Index
+            [int]$total = [int]$seg.Total
+            [int]$par = [int]$seg.Parity
+            [int]$totalEnc = $total - 1
+            for ([int]$b = 3; $b -ge 0; $b--) { [void]$bits.Add([int](($idx -shr $b) -band 1)) }
+            for ([int]$b = 3; $b -ge 0; $b--) { [void]$bits.Add([int](($totalEnc -shr $b) -band 1)) }
+            for ([int]$b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($par -shr $b) -band 1)) }
             continue
         }
         
         if ($mode -eq 'F1') { continue }
         
         if ($mode -eq 'F2') {
-            $app = [int]$seg.AppIndicator
-            for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($app -shr $b) -band 1)) }
+            [int]$app = [int]$seg.AppIndicator
+            for ([int]$b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($app -shr $b) -band 1)) }
             continue
         }
         
         # Character Count Indicator
-        $cb = switch ($mode) { 
+        [int]$cb = switch ($mode) { 
             'N' { if($ver -le 9){10} elseif($ver -le 26){12} else{14} } 
             'A' { if($ver -le 9){9}  elseif($ver -le 26){11} else{13} } 
             'B' { if($ver -le 9){8}  else{16} }
             'K' { if($ver -le 9){8}  elseif($ver -le 26){10} else{12} }
         }
         
-        $count = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($txt) } else { $txt.Length }
-        for ($i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($count -shr $i) -band 1)) }
+        [int]$count = if ($mode -eq 'B') { [System.Text.Encoding]::UTF8.GetByteCount($txt) } else { $txt.Length }
+        for ([int]$i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($count -shr $i) -band 1)) }
         
         # Data Encoding
         switch ($mode) {
             'N' {
-                for ($i = 0; $i -lt $txt.Length; $i += 3) {
-                    $ch = $txt.Substring($i, [Math]::Min(3, $txt.Length - $i))
-                    $v = [int]$ch; $nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
-                    for ($b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                for ([int]$i = 0; $i -lt $txt.Length; $i += 3) {
+                    [string]$ch = $txt.Substring($i, [Math]::Min(3, $txt.Length - $i))
+                    [int]$v = [int]$ch; [int]$nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
+                    for ([int]$b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
                 }
             }
             'A' {
-                for ($i = 0; $i -lt $txt.Length; $i += 2) {
+                for ([int]$i = 0; $i -lt $txt.Length; $i += 2) {
                     if ($i + 1 -lt $txt.Length) {
-                        $v = $script:ALPH.IndexOf($txt[$i]) * 45 + $script:ALPH.IndexOf($txt[$i+1])
-                        for ($b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                        [int]$v = $script:ALPH.IndexOf($txt[$i]) * 45 + $script:ALPH.IndexOf($txt[$i+1])
+                        for ([int]$b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
                     } else {
-                        $v = $script:ALPH.IndexOf($txt[$i])
-                        for ($b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                        [int]$v = $script:ALPH.IndexOf($txt[$i])
+                        for ([int]$b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
                     }
                 }
             }
             'B' {
-                foreach ($byte in [Text.Encoding]::UTF8.GetBytes($txt)) {
-                    for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($byte -shr $b) -band 1)) }
+                foreach ($byte in [System.Text.Encoding]::UTF8.GetBytes($txt)) {
+                    for ([int]$b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($byte -shr $b) -band 1)) }
                 }
             }
             'K' {
-                $sjis = [System.Text.Encoding]::GetEncoding(932)
-                $bytes = $sjis.GetBytes($txt)
-                for ($i = 0; $i -lt $bytes.Length; $i += 2) {
-                    $val = ([int]$bytes[$i] -shl 8) -bor [int]$bytes[$i+1]
+                [System.Text.Encoding]$sjis = [System.Text.Encoding]::GetEncoding(932)
+                [byte[]]$bytes = $sjis.GetBytes($txt)
+                for ([int]$i = 0; $i -lt $bytes.Length; $i += 2) {
+                    [int]$val = ([int]$bytes[$i] -shl 8) -bor [int]$bytes[$i+1]
                     if ($val -ge 0x8140 -and $val -le 0x9FFC) { $val -= 0x8140 }
                     elseif ($val -ge 0xE040 -and $val -le 0xEBBF) { $val -= 0xC140 }
                     $val = (($val -shr 8) * 0xC0) + ($val -band 0xFF)
-                    for ($b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                    for ([int]$b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
                 }
             }
         }
     }
     
     # Terminator and Padding
-    $cap = $script:SPEC["$ver$ec"].D * 8
-    $term = [Math]::Min(4, $cap - $bits.Count)
-    for ($i = 0; $i -lt $term; $i++) { [void]$bits.Add(0) }
+    [int]$cap = $script:SPEC["$ver$ec"].D * 8
+    [int]$term = [Math]::Min(4, $cap - $bits.Count)
+    for ([int]$i = 0; $i -lt $term; $i++) { [void]$bits.Add(0) }
     while ($bits.Count % 8 -ne 0) { [void]$bits.Add(0) }
     
-    $pads = @(236, 17); $pi = 0
+    [int[]]$pads = @(236, 17); [int]$pi = 0
     while ($bits.Count -lt $cap) {
-        $pb = $pads[$pi]; $pi = 1 - $pi
-        for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($pb -shr $b) -band 1)) }
+        [int]$pb = $pads[$pi]; $pi = 1 - $pi
+        for ([int]$b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($pb -shr $b) -band 1)) }
     }
     
-    $result = @()
-    for ($i = 0; $i -lt $bits.Count; $i += 8) {
-        $byte = 0
-        for ($j = 0; $j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i + $j] }
-        $result += $byte
+    [System.Collections.Generic.List[int]]$result = New-Object "System.Collections.Generic.List[int]"
+    for ([int]$i = 0; $i -lt $bits.Count; $i += 8) {
+        [int]$byte = 0
+        for ([int]$j = 0; $j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i + $j] }
+        [void]$result.Add($byte)
     }
-    return $result
+    return [int[]]$result
 }
 
 function RMQREncode($txt, $spec, $ec) {
-    $segments = Get-Segment $txt
-    $bits = New-Object System.Collections.ArrayList
-    $de = if ($ec -eq 'H') { $spec.H2 } else { $spec.M }
-    $capBits = $de.D * 8
-    $cbMap = Get-RMQRCountBitsMap $spec
-    $needsUtf8 = $false
+    $segments = if ($txt -is [array] -or $txt -is [System.Collections.IList]) { $txt } else { Get-Segment $txt }
+    [System.Collections.Generic.List[int]]$bits = New-Object "System.Collections.Generic.List[int]"
+    [hashtable]$de = if ($ec -eq 'H') { $spec.H2 } else { $spec.M }
+    [int]$capBits = [int]$de.D * 8
+    [hashtable]$cbMap = Get-RMQRCountBitsMap $spec
+    [bool]$needsUtf8 = $false
     foreach ($seg in $segments) {
         if ($seg.Mode -eq 'B' -and $seg.Data -match '[^ -~]') { $needsUtf8 = $true; break }
     }
@@ -1408,123 +1492,127 @@ function RMQREncode($txt, $spec, $ec) {
         $segments = @(@{Mode='ECI'; Data='26'}) + $segments
     }
     foreach ($seg in $segments) {
-        $mode = $seg.Mode; $txtS = $seg.Data
+        [string]$mode = $seg.Mode; [string]$txtS = $seg.Data
         switch ($mode) {
-            'N'{[void]$bits.AddRange(@(0,0,1))}
-            'A'{[void]$bits.AddRange(@(0,1,0))}
-            'B'{[void]$bits.AddRange(@(0,1,1))}
-            'K'{[void]$bits.AddRange(@(1,0,0))}
-            'ECI'{[void]$bits.AddRange(@(1,1,1))}
+            'N'{ [void]$bits.Add(0); [void]$bits.Add(0); [void]$bits.Add(1) }
+            'A'{ [void]$bits.Add(0); [void]$bits.Add(1); [void]$bits.Add(0) }
+            'B'{ [void]$bits.Add(0); [void]$bits.Add(1); [void]$bits.Add(1) }
+            'K'{ [void]$bits.Add(1); [void]$bits.Add(0); [void]$bits.Add(0) }
+            'ECI'{ [void]$bits.Add(1); [void]$bits.Add(1); [void]$bits.Add(1) }
         }
         if ($mode -eq 'ECI') {
-            $val = [int]$txtS
+            [int]$val = [int]$txtS
             if ($val -lt 128) {
-                for ($b=7; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                for ([int]$b=7; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
             } elseif ($val -lt 16384) {
-                [void]$bits.AddRange(@(1,0))
-                for ($b=13; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                [void]$bits.Add(1); [void]$bits.Add(0)
+                for ([int]$b=13; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
             } else {
-                [void]$bits.AddRange(@(1,1,0))
-                for ($b=20; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                [void]$bits.Add(1); [void]$bits.Add(1); [void]$bits.Add(0)
+                for ([int]$b=20; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
             }
             continue
         }
-        $cb = switch ($mode) { 'N' { $cbMap.N } 'A' { $cbMap.A } 'B' { $cbMap.B } 'K' { $cbMap.K } }
-        $count = if ($mode -eq 'B') { [Text.Encoding]::UTF8.GetByteCount($txtS) } else { $txtS.Length }
-        for ($i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($count -shr $i) -band 1)) }
+        [int]$cb = switch ($mode) { 'N' { $cbMap.N } 'A' { $cbMap.A } 'B' { $cbMap.B } 'K' { $cbMap.K } }
+        [int]$count = if ($mode -eq 'B') { [System.Text.Encoding]::UTF8.GetByteCount($txtS) } else { $txtS.Length }
+        for ([int]$i = $cb - 1; $i -ge 0; $i--) { [void]$bits.Add([int](($count -shr $i) -band 1)) }
         switch ($mode) {
             'N' {
-                for ($i = 0; $i -lt $txtS.Length; $i += 3) {
-                    $ch = $txtS.Substring($i, [Math]::Min(3, $txtS.Length - $i))
-                    $v = [int]$ch; $nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
-                    for ($b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                for ([int]$i = 0; $i -lt $txtS.Length; $i += 3) {
+                    [string]$ch = $txtS.Substring($i, [Math]::Min(3, $txtS.Length - $i))
+                    [int]$v = [int]$ch; [int]$nb = switch ($ch.Length) { 3{10} 2{7} 1{4} }
+                    for ([int]$b = $nb - 1; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
                 }
             }
             'A' {
-                for ($i = 0; $i -lt $txtS.Length; $i += 2) {
+                for ([int]$i = 0; $i -lt $txtS.Length; $i += 2) {
                     if ($i + 1 -lt $txtS.Length) {
-                        $v = $script:ALPH.IndexOf($txtS[$i]) * 45 + $script:ALPH.IndexOf($txtS[$i+1])
-                        for ($b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                        [int]$v = $script:ALPH.IndexOf($txtS[$i]) * 45 + $script:ALPH.IndexOf($txtS[$i+1])
+                        for ([int]$b = 10; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
                     } else {
-                        $v = $script:ALPH.IndexOf($txtS[$i])
-                        for ($b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
+                        [int]$v = $script:ALPH.IndexOf($txtS[$i])
+                        for ([int]$b = 5; $b -ge 0; $b--) { [void]$bits.Add([int](($v -shr $b) -band 1)) }
                     }
                 }
             }
             'B' {
-                foreach ($byte in [Text.Encoding]::UTF8.GetBytes($txtS)) {
-                    for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($byte -shr $b) -band 1)) }
+                foreach ($byte in [System.Text.Encoding]::UTF8.GetBytes($txtS)) {
+                    for ([int]$b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](([int]$byte -shr $b) -band 1)) }
                 }
             }
             'K' {
-                $sjis = [System.Text.Encoding]::GetEncoding(932)
-                $bytes = $sjis.GetBytes($txtS)
-                for ($i = 0; $i -lt $bytes.Length; $i += 2) {
-                    $val = ([int]$bytes[$i] -shl 8) -bor [int]$bytes[$i+1]
+                [System.Text.Encoding]$sjis = [System.Text.Encoding]::GetEncoding(932)
+                [byte[]]$bytes = $sjis.GetBytes($txtS)
+                for ([int]$i = 0; $i -lt $bytes.Length; $i += 2) {
+                    [int]$val = ([int]$bytes[$i] -shl 8) -bor [int]$bytes[$i+1]
                     if ($val -ge 0x8140 -and $val -le 0x9FFC) { $val -= 0x8140 }
                     elseif ($val -ge 0xE040 -and $val -le 0xEBBF) { $val -= 0xC140 }
                     $val = (($val -shr 8) * 0xC0) + ($val -band 0xFF)
-                    for ($b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
+                    for ([int]$b = 12; $b -ge 0; $b--) { [void]$bits.Add([int](($val -shr $b) -band 1)) }
                 }
             }
         }
     }
-    $term = [Math]::Min(4, $capBits - $bits.Count)
-    for ($i = 0; $i -lt $term; $i++) { [void]$bits.Add(0) }
+    [int]$term = [Math]::Min(3, $capBits - $bits.Count)
+    for ([int]$i = 0; $i -lt $term; $i++) { [void]$bits.Add(0) }
     while ($bits.Count % 8 -ne 0) { [void]$bits.Add(0) }
-    $pads = @(236,17); $pi=0
+    [int[]]$pads = @(236,17); [int]$pi=0
     while ($bits.Count -lt $capBits) {
-        $pb = $pads[$pi]; $pi = 1 - $pi
-        for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($pb -shr $b) -band 1)) }
+        [int]$pb = $pads[$pi]; $pi = 1 - $pi
+        for ([int]$b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($pb -shr $b) -band 1)) }
     }
-    $dataCW = @()
-    for ($i = 0; $i -lt $bits.Count; $i += 8) {
-        $byte = 0; for ($j=0;$j -lt 8;$j++){ $byte = ($byte -shl 1) -bor $bits[$i+$j] }
-        $dataCW += $byte
+    [System.Collections.Generic.List[int]]$dataCW = New-Object "System.Collections.Generic.List[int]"
+    for ([int]$i = 0; $i -lt $bits.Count; $i += 8) {
+        [int]$byte = 0; for ([int]$j=0;$j -lt 8;$j++){ $byte = ($byte -shl 1) -bor $bits[$i+$j] }
+        [void]$dataCW.Add($byte)
     }
-    return $dataCW
+    return [int[]]$dataCW
 }
 
-function ReadFormatInfoMicro($m) {
+function ReadFormatInfoMicro([hashtable]$m) {
     # 15 bits around finder pattern
     # (8,0)..(8,7) and (0,8)..(7,8) - Actually standard says:
     # (8,1)..(8,8) and (1,8)..(7,8)
-    $bits = ""
-    for ($i=1;$i -le 8;$i++){ $bits += $m.Mod[8,$i] }
-    for ($i=7;$i -ge 1;$i--){ $bits += $m.Mod[$i,8] }
+    [string]$bits = ""
+    [int[,]]$mMod = $m.Mod
+    for ([int]$i=1;$i -le 8;$i++){ $bits += $mMod.GetValue(8,$i) }
+    for ([int]$i=7;$i -ge 1;$i--){ $bits += $mMod.GetValue($i,8) }
     
-    $mask = 0x4445
-    $val = [Convert]::ToInt32($bits, 2) -bxor $mask
+    [int]$mask = 0x4445
+    [int]$val = [Convert]::ToInt32($bits, 2) -bxor $mask
     
-    $data = $val -shr 10
-    $vBits = ($data -shr 3) -band 0x03
-    $ver = "M$($vBits + 1)"
-    $modeBits = $data -band 0x07
+    [int]$data = $val -shr 10
+    [int]$vBits = ($data -shr 3) -band 0x03
+    [string]$ver = "M$($vBits + 1)"
+    [int]$modeBits = $data -band 0x07
     
-    $ec = 'L'; $mIdx = 0
+    [char]$ec = [char]'L'; [int]$mIdx = 0
     switch ($modeBits) {
-        0 { $ec = 'L'; $mIdx = 0 }
-        1 { $ec = 'L'; $mIdx = 1 }
-        2 { $ec = 'L'; $mIdx = 2 }
-        3 { $ec = 'L'; $mIdx = 3 }
-        4 { $ec = 'M'; $mIdx = 0 }
-        5 { $ec = 'M'; $mIdx = 1 }
-        6 { $ec = 'M'; $mIdx = 2 }
-        7 { $ec = 'M'; $mIdx = 3 }
+        0 { $ec = [char]'L'; $mIdx = 0 }
+        1 { $ec = [char]'L'; $mIdx = 1 }
+        2 { $ec = [char]'L'; $mIdx = 2 }
+        3 { $ec = [char]'L'; $mIdx = 3 }
+        4 { $ec = [char]'M'; $mIdx = 0 }
+        5 { $ec = [char]'M'; $mIdx = 1 }
+        6 { $ec = [char]'M'; $mIdx = 2 }
+        7 { $ec = [char]'M'; $mIdx = 3 }
     }
     return @{ Version=$ver; EC=$ec; Mask=$mIdx }
 }
 
-function ExtractBitsMicro($m) {
-    $size = $m.Size
-    $bits = New-Object System.Collections.ArrayList
-    $up = $true
-    for ($col = $size - 1; $col -gt 0; $col -= 2) {
-        $rows = if ($up) { ($size - 1)..0 } else { 0..($size - 1) }
-        foreach ($row in $rows) {
-            foreach ($c in $col..($col - 1)) {
-                if (-not $m.Func[$row,$c]) {
-                    [void]$bits.Add($m.Mod[$row,$c])
+function ExtractBitsMicro([hashtable]$m) {
+    [int]$size = [int]$m.Size
+    [System.Collections.Generic.List[int]]$bits = New-Object "System.Collections.Generic.List[int]"
+    [bool]$up = $true
+    [bool[,]]$mFunc = $m.Func
+    [int[,]]$mMod = $m.Mod
+    for ([int]$col = $size - 1; $col -gt 0; $col -= 2) {
+        if ($col -eq 6) { $col-- }
+        for ([int]$r = 0; $r -lt $size; $r++) {
+            [int]$row = if ($up) { $size - 1 - $r } else { $r }
+            for ([int]$c = 0; $c -lt 2; $c++) {
+                if (-not [bool]$mFunc.GetValue($row, $col - $c)) {
+                    [void]$bits.Add([int]$mMod.GetValue($row, $col - $c))
                 }
             }
         }
@@ -1534,82 +1622,76 @@ function ExtractBitsMicro($m) {
 }
 
 function DecodeMicroQRStream($bytes, $ver) {
-    $bits = New-Object System.Collections.ArrayList
-    foreach ($b in $bytes) { for ($i=7;$i -ge 0;$i--){ [void]$bits.Add([int](($b -shr $i) -band 1)) } }
-    $idx = 0
-    $resultTxt = ""
+    [System.Collections.Generic.List[int]]$bits = New-Object "System.Collections.Generic.List[int]"
+    foreach ($b in $bytes) { for ([int]$i=7;$i -ge 0;$i--){ [void]$bits.Add([int](([int]$b -shr $i) -band 1)) } }
+    [int]$idx = 0
+    [string]$resultTxt = ""
     $segs = @()
     
-    # Mode indicators for Micro QR are variable length!
-    # M1: No mode indicator (always Numeric)
-    # M2: 1 bit (0:N, 1:A)
-    # M3: 2 bits (00:N, 01:A, 10:B, 11:K)
-    # M4: 3 bits (000:N, 001:A, 010:B, 011:K, ...)
-    
     while ($idx -lt $bits.Count) {
-        $mode = ""
+        [string]$mode = ""
         if ($ver -eq 'M1') { $mode = 'N' }
         elseif ($ver -eq 'M2') {
             if ($idx + 1 -gt $bits.Count) { break }
-            $mBits = $bits[$idx++]; if ($mBits -eq 0) { $mode = 'N' } else { $mode = 'A' }
+            [int]$mBits = $bits[$idx++]; if ($mBits -eq 0) { $mode = 'N' } else { $mode = 'A' }
         } elseif ($ver -eq 'M3') {
             if ($idx + 2 -gt $bits.Count) { break }
-            $mBits = ($bits[$idx] -shl 1) -bor $bits[$idx+1]; $idx += 2
-            $mode = switch($mBits){0{'N'} 1{'A'} 2{'B'} 3{'K'}}
+            [int]$mBits = ($bits[$idx] -shl 1) -bor $bits[$idx+1]; $idx += 2
+            $mode = switch($mBits){0{'N'} 1{'A'} 2{'B'} 3{'K'} default{""}}
         } elseif ($ver -eq 'M4') {
             if ($idx + 3 -gt $bits.Count) { break }
-            $mBits = ($bits[$idx] -shl 2) -bor ($bits[$idx+1] -shl 1) -bor $bits[$idx+2]; $idx += 3
-            $mode = switch($mBits){0{'N'} 1{'A'} 2{'B'} 3{'K'}}
+            [int]$mBits = ($bits[$idx] -shl 2) -bor ($bits[$idx+1] -shl 1) -bor $bits[$idx+2]; $idx += 3
+            $mode = switch($mBits){0{""} 1{'N'} 2{'A'} 3{'B'} 4{'K'} default{""}}
         }
         
-        if ($mode -eq "" -or $mode -eq 0) { break } # Terminator
+        if ($mode -eq "") { break } # Terminator
         
-        $cb = GetMicroCountBits $ver $mode
+        [int]$cb = GetMicroCountBits $ver $mode
         if ($idx + $cb -gt $bits.Count) { break }
-        $count = 0
-        for ($i=0;$i -lt $cb;$i++){ $count = ($count -shl 1) -bor $bits[$idx+$i] }
+        [int]$count = 0
+        for ([int]$i=0;$i -lt $cb;$i++){ $count = ($count -shl 1) -bor $bits[$idx+$i] }
         $idx += $cb
         
         if ($mode -eq 'N') {
             $sbOut = [System.Text.StringBuilder]::new()
-            $rem = $count % 3; $full = $count - $rem
-            for ($i=0;$i -lt $full; $i += 3) {
-                $val = 0; for ($b=0;$b -lt 10;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 10
+            [int]$rem = $count % 3; [int]$full = $count - $rem
+            for ([int]$i=0;$i -lt $full; $i += 3) {
+                [int]$val = 0; for ([int]$b=0;$b -lt 10;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 10
                 [void]$sbOut.Append($val.ToString("D3"))
             }
             if ($rem -eq 1) {
-                $val = 0; for ($b=0;$b -lt 4;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 4
+                [int]$val = 0; for ([int]$b=0;$b -lt 4;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 4
                 [void]$sbOut.Append($val.ToString())
             } elseif ($rem -eq 2) {
-                $val = 0; for ($b=0;$b -lt 7;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 7
+                [int]$val = 0; for ([int]$b=0;$b -lt 7;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 7
                 [void]$sbOut.Append($val.ToString("D2"))
             }
-            $out = $sbOut.ToString()
+            [string]$out = $sbOut.ToString()
             $resultTxt += $out
             $segs += @{Mode='N'; Data=$out}
         } elseif ($mode -eq 'A') {
             $sbOut = [System.Text.StringBuilder]::new()
-            for ($i=0;$i -lt $count; $i += 2) {
+            for ([int]$i=0;$i -lt $count; $i += 2) {
                 if ($i + 1 -lt $count) {
-                    $val = 0; for ($b=0;$b -lt 11;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 11
-                    $c1 = [Math]::Floor($val / 45); $c2 = $val % 45
+                    [int]$val = 0; for ([int]$b=0;$b -lt 11;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 11
+                    [int]$c1 = [Math]::Floor($val / 45); [int]$c2 = $val % 45
                     [void]$sbOut.Append($script:ALPH[$c1])
                     [void]$sbOut.Append($script:ALPH[$c2])
                 } else {
-                    $val = 0; for ($b=0;$b -lt 6;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 6
+                    [int]$val = 0; for ([int]$b=0;$b -lt 6;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 6
                     [void]$sbOut.Append($script:ALPH[$val])
                 }
             }
-            $out = $sbOut.ToString()
+            [string]$out = $sbOut.ToString()
             $resultTxt += $out
             $segs += @{Mode='A'; Data=$out}
         } elseif ($mode -eq 'B') {
-            $bytesOut = New-Object byte[] $count
-            for ($i=0;$i -lt $count; $i++) {
-                $val = 0; for ($b=0;$b -lt 8;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 8
+            [byte[]]$bytesOut = New-Object byte[] $count
+            for ([int]$i=0;$i -lt $count; $i++) {
+                [int]$val = 0; for ([int]$b=0;$b -lt 8;$b++){ $val = ($val -shl 1) -bor $bits[$idx+$b] }; $idx += 8
                 $bytesOut[$i] = [byte]$val
             }
-            $txt = [Text.Encoding]::UTF8.GetString($bytesOut)
+            [string]$txt = [System.Text.Encoding]::UTF8.GetString($bytesOut)
             $resultTxt += $txt
             $segs += @{Mode='B'; Data=$txt}
         }
@@ -1652,16 +1734,17 @@ function Decode-MicroQRMatrix($m) {
 }
 
 function Get-RMQRCountBitsMap($spec) {
-    $totalCW = $spec.M.D + $spec.M.E
-    $totalBits = $totalCW * 8
-    $grp = 'S'
+    [int]$totalCW = $spec.M.D + $spec.M.E
+    [int]$totalBits = $totalCW * 8
+    [string]$grp = 'S'
     if ($totalBits -ge 640) { $grp = 'L' }
     elseif ($totalBits -ge 320) { $grp = 'M' }
     
+    # ISO/IEC 23941 Table 7 - CCI lengths for rMQR (Updated)
     switch ($grp) {
-        'S' { return @{ N=10; A=9;  B=8;  K=8 } }
-        'M' { return @{ N=12; A=11; B=10; K=10 } }
-        'L' { return @{ N=14; A=13; B=12; K=12 } }
+        'S' { return @{ N=6; A=5; B=4; K=4 } }
+        'M' { return @{ N=8; A=7; B=6; K=6 } }
+        'L' { return @{ N=12; A=10; B=9; K=9 } }
     }
 }
 
@@ -1764,8 +1847,8 @@ function AddVersionInfo([hashtable]$m, [int]$ver) {
         [int]$r = 5 - ($i % 6)
         [int]$c = $size - 11 + [Math]::Floor($i / 6)
         
-        $mMod[$r,$c] = $bit; $mFunc[$r,$c] = $true
-        $mMod[$c,$r] = $bit; $mFunc[$c,$r] = $true
+        $mMod.SetValue($bit, $r, $c); $mFunc.SetValue($true, $r, $c)
+        $mMod.SetValue($bit, $c, $r); $mFunc.SetValue($true, $c, $r)
     }
 }
 
@@ -1786,8 +1869,8 @@ function InitM([int]$ver, [string]$model) {
     
     for ([int]$i = 8; $i -lt $size - 8; $i++) {
         [bool]$v = ($i % 2) -eq 0
-        if (-not $mFunc[6,$i]) { $mMod[6,$i] = [int]$v; $mFunc[6,$i] = $true }
-        if (-not $mFunc[$i,6]) { $mMod[$i,6] = [int]$v; $mFunc[$i,6] = $true }
+        if (-not [bool]$mFunc.GetValue(6, $i)) { $mMod.SetValue([int]$v, 6, $i); $mFunc.SetValue($true, 6, $i) }
+        if (-not [bool]$mFunc.GetValue($i, 6)) { $mMod.SetValue([int]$v, $i, 6); $mFunc.SetValue($true, $i, 6) }
     }
     
     if ($model -ne 'M1' -and $ver -ge 2 -and $script:ALIGN[$ver]) {
@@ -1802,17 +1885,17 @@ function InitM([int]$ver, [string]$model) {
     
     # Dark module
     [int]$dmR = 4 * $ver + 9
-    $mMod[$dmR, 8] = 1; $mFunc[$dmR, 8] = $true
+    $mMod.SetValue(1, $dmR, 8); $mFunc.SetValue($true, $dmR, 8)
     
     # Reserve format info areas
     for ([int]$i = 0; $i -lt 9; $i++) {
-        if (-not $mFunc[8,$i]) { $mFunc[8,$i] = $true }
-        if (-not $mFunc[$i,8]) { $mFunc[$i,8] = $true }
+        if (-not [bool]$mFunc.GetValue(8, $i)) { $mFunc.SetValue($true, 8, $i) }
+        if (-not [bool]$mFunc.GetValue($i, 8)) { $mFunc.SetValue($true, $i, 8) }
     }
     for ([int]$i = 0; $i -lt 8; $i++) {
         [int]$idx = $size - 1 - $i
-        if (-not $mFunc[8,$idx]) { $mFunc[8,$idx] = $true }
-        if (-not $mFunc[$idx,8]) { $mFunc[$idx,8] = $true }
+        if (-not [bool]$mFunc.GetValue(8, $idx)) { $mFunc.SetValue($true, 8, $idx) }
+        if (-not [bool]$mFunc.GetValue($idx, 8)) { $mFunc.SetValue($true, $idx, 8) }
     }
     
     AddVersionInfo $m $ver
@@ -1823,9 +1906,9 @@ function InitM([int]$ver, [string]$model) {
 }
 
 function PlaceData([hashtable]$m, [int[]]$cw) {
-    $bits = New-Object System.Collections.Generic.List[int]
+    [System.Collections.Generic.List[int]]$bits = New-Object System.Collections.Generic.List[int]
     foreach ($c in $cw) {
-        for ([int]$b = 7; $b -ge 0; $b--) { $bits.Add([int](($c -shr $b) -band 1)) }
+        for ([int]$b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($c -shr $b) -band 1)) }
     }
     
     [int]$idx = 0
@@ -1841,9 +1924,9 @@ function PlaceData([hashtable]$m, [int[]]$cw) {
             for ([int]$row = $size - 1; $row -ge 0; $row--) {
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not $mFunc[$row,$col]) {
+                    if (-not [bool]$mFunc.GetValue($row, $col)) {
                         [int]$v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
-                        $mMod[$row,$col] = $v
+                        $mMod.SetValue($v, $row, $col)
                         $idx++
                     }
                 }
@@ -1852,9 +1935,9 @@ function PlaceData([hashtable]$m, [int[]]$cw) {
             for ([int]$row = 0; $row -lt $size; $row++) {
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not $mFunc[$row,$col]) {
+                    if (-not [bool]$mFunc.GetValue($row, $col)) {
                         [int]$v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
-                        $mMod[$row,$col] = $v
+                        $mMod.SetValue($v, $row, $col)
                         $idx++
                     }
                 }
@@ -1866,7 +1949,7 @@ function PlaceData([hashtable]$m, [int[]]$cw) {
 
 function ApplyMask([hashtable]$m, [int]$p) {
     [int]$size = [int]$m.Size
-    $cacheKey = "Mask-$size-$p"
+    [string]$cacheKey = "Mask-$size-$p"
     if (-not $script:MATRIX_CACHE.ContainsKey($cacheKey)) {
         [int[]]$maskArr = New-Object "int[]" ($size * $size)
         for ([int]$row = 0; $row -lt $size; $row++) {
@@ -1876,7 +1959,7 @@ function ApplyMask([hashtable]$m, [int]$p) {
                     1 { ($row % 2) -eq 0 }
                     2 { ($col % 3) -eq 0 }
                     3 { (($row + $col) % 3) -eq 0 }
-                    4 { (([Math]::Floor($row / 2) + [Math]::Floor($col / 3)) % 2) -eq 0 }
+                    4 { (([Math]::Floor([double]$row / 2) + [Math]::Floor([double]$col / 3)) % 2) -eq 0 }
                     5 { ((($row * $col) % 2) + (($row * $col) % 3)) -eq 0 }
                     6 { (((($row * $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                     7 { (((($row + $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
@@ -1886,9 +1969,9 @@ function ApplyMask([hashtable]$m, [int]$p) {
         }
         $script:MATRIX_CACHE[$cacheKey] = $maskArr
     }
-    [int[]]$maskArr = $script:MATRIX_CACHE[$cacheKey]
+    [int[]]$maskArr = [int[]]$script:MATRIX_CACHE[$cacheKey]
 
-    $r = NewM $size
+    [hashtable]$r = NewM $size
     [int[,]]$mMod = $m.Mod
     [bool[,]]$mFunc = $m.Func
     [int[,]]$rMod = $r.Mod
@@ -1896,12 +1979,12 @@ function ApplyMask([hashtable]$m, [int]$p) {
 
     for ([int]$row = 0; $row -lt $size; $row++) {
         for ([int]$col = 0; $col -lt $size; $col++) {
-            $rFunc[$row,$col] = $mFunc[$row,$col]
-            [int]$v = $mMod[$row,$col]
-            if (-not $mFunc[$row,$col]) {
+            $rFunc.SetValue([bool]$mFunc.GetValue($row, $col), $row, $col)
+            [int]$v = [int]$mMod.GetValue($row, $col)
+            if (-not [bool]$mFunc.GetValue($row, $col)) {
                 if ($maskArr[$row * $size + $col] -eq 1) { $v = 1 - $v }
             }
-            $rMod[$row,$col] = $v
+            $rMod.SetValue($v, $row, $col)
         }
     }
     return $r
@@ -1916,7 +1999,7 @@ function GetPenalty([hashtable]$m) {
     [int[,]]$mMod = $m.Mod
     for ([int]$r = 0; $r -lt $size; $r++) {
         for ([int]$c = 0; $c -lt $size; $c++) {
-            $data[$r * $size + $c] = $mMod[$r,$c]
+            $data[$r * $size + $c] = [int]$mMod.GetValue($r, $c)
         }
     }
 
@@ -2000,11 +2083,11 @@ function ReadFormatInfo([hashtable]$m) {
     $bits = New-Object System.Collections.Generic.List[int]
     [int[,]]$mMod = $m.Mod
     for ([int]$i = 0; $i -lt 15; $i++) {
-        if ($i -le 5) { $bits.Add($mMod[8,$i]) }
-        elseif ($i -eq 6) { $bits.Add($mMod[8,7]) }
-        elseif ($i -eq 7) { $bits.Add($mMod[8,8]) }
-        elseif ($i -eq 8) { $bits.Add($mMod[7,8]) }
-        else { [int]$row = 14 - $i; $bits.Add($mMod[$row,8]) }
+        if ($i -le 5) { [void]$bits.Add([int]$mMod.GetValue(8,$i)) }
+        elseif ($i -eq 6) { [void]$bits.Add([int]$mMod.GetValue(8,7)) }
+        elseif ($i -eq 7) { [void]$bits.Add([int]$mMod.GetValue(8,8)) }
+        elseif ($i -eq 8) { [void]$bits.Add([int]$mMod.GetValue(7,8)) }
+        else { [int]$row = 14 - $i; [void]$bits.Add([int]$mMod.GetValue($row,8)) }
     }
     $fmtStr = $bits -join ""
     $ec = $null; [int]$mask = -1
@@ -2049,12 +2132,12 @@ function UnmaskQR([hashtable]$m, [int]$p) {
     [bool[,]]$rFunc = $r.Func
     for ([int]$row = 0; $row -lt $size; $row++) {
         for ([int]$col = 0; $col -lt $size; $col++) {
-            $rFunc[$row,$col] = $mFunc[$row,$col]
-            [int]$v = $mMod[$row,$col]
-            if (-not $mFunc[$row,$col]) {
+            $rFunc.SetValue([bool]$mFunc.GetValue($row,$col), $row, $col)
+            [int]$v = [int]$mMod.GetValue($row,$col)
+            if (-not [bool]$mFunc.GetValue($row,$col)) {
                 if ($maskArr[$row * $size + $col] -eq 1) { $v = 1 - $v }
             }
-            $rMod[$row,$col] = $v
+            $rMod.SetValue($v, $row, $col)
         }
     }
     return $r
@@ -2072,8 +2155,8 @@ function ExtractBitsQR([hashtable]$m) {
             for ([int]$row = $size - 1; $row -ge 0; $row--) {
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not $mFunc[$row,$col]) {
-                        $bits.Add($mMod[$row,$col])
+                    if (-not [bool]$mFunc.GetValue($row,$col)) {
+                        [void]$bits.Add([int]$mMod.GetValue($row,$col))
                     }
                 }
             }
@@ -2081,8 +2164,8 @@ function ExtractBitsQR([hashtable]$m) {
             for ([int]$row = 0; $row -lt $size; $row++) {
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not $mFunc[$row,$col]) {
-                        $bits.Add($mMod[$row,$col])
+                    if (-not [bool]$mFunc.GetValue($row,$col)) {
+                        [void]$bits.Add([int]$mMod.GetValue($row,$col))
                     }
                 }
             }
@@ -2337,31 +2420,41 @@ function FindBestMask($m) {
     return $best
 }
 
-function AddFormat($m, $ec, $mask) {
-    $fmt = $script:FMT["$ec$mask"]
-    $size = $m.Size
+function AddFormat([hashtable]$m, [string]$ec, [int]$mask) {
+    if ($null -eq $script:FMT -or -not $script:FMT.ContainsKey("$ec$mask")) { return }
+    $fmtVal = $script:FMT["$ec$mask"]
+    if ($null -eq $fmtVal) { return }
+    [int[]]$fmt = New-Object int[] 15
+    for ([int]$i = 0; $i -lt 15; $i++) { $fmt[$i] = [int][string]$fmtVal[$i] }
     
-    for ($i = 0; $i -lt 15; $i++) {
-        $bit = [int]($fmt[$i].ToString())
+    [int]$size = [int]$m.Size
+    [int[,]]$mMod = $m.Mod
+    [bool[,]]$mFunc = $m.Func
+    
+    for ([int]$i = 0; $i -lt 15; $i++) {
+        [int]$bit = $fmt[$i]
         
+        # Horizontal sequence
         if ($i -le 5) {
-            SetM $m 8 $i $bit
+            $mFunc.SetValue($true, 8, $i); $mMod.SetValue($bit, 8, $i)
         } elseif ($i -eq 6) {
-            SetM $m 8 7 $bit
+            $mFunc.SetValue($true, 8, 7); $mMod.SetValue($bit, 8, 7)
         } elseif ($i -eq 7) {
-            SetM $m 8 8 $bit
+            $mFunc.SetValue($true, 8, 8); $mMod.SetValue($bit, 8, 8)
         } elseif ($i -eq 8) {
-            SetM $m 7 8 $bit
+            $mFunc.SetValue($true, 7, 8); $mMod.SetValue($bit, 7, 8)
         } else {
-            $row = 14 - $i
-            SetM $m $row 8 $bit
+            [int]$row = 14 - $i
+            $mFunc.SetValue($true, $row, 8); $mMod.SetValue($bit, $row, 8)
         }
         
+        # Copias
         if ($i -le 7) {
-            SetM $m 8 ($size - 1 - $i) $bit
+            [int]$col = $size - 1 - $i
+            $mFunc.SetValue($true, 8, $col); $mMod.SetValue($bit, 8, $col)
         } else {
-            $row = $size - 15 + $i
-            SetM $m $row 8 $bit
+            [int]$row = $size - 15 + $i
+            $mFunc.SetValue($true, $row, 8); $mMod.SetValue($bit, $row, 8)
         }
     }
 }
@@ -3831,10 +3924,11 @@ function ShowConsoleRect {
     Write-Output ""
     $border = [string]::new([char]0x2588, ($m.Width + 2) * 2)
     Write-Output "  $border"
-    for ($r = 0; $r -lt $m.Height; $r++) {
+    [int[,]]$mMod = $m.Mod
+    for ([int]$r = 0; $r -lt $m.Height; $r++) {
         $line = "  " + [char]0x2588 + [char]0x2588
-        for ($c = 0; $c -lt $m.Width; $c++) {
-            $line += if ($m.Mod[$r,$c] -eq 1) { "  " } else { [string]::new([char]0x2588, 2) }
+        for ([int]$c = 0; $c -lt $m.Width; $c++) {
+            $line += if ([int]$mMod.GetValue($r, $c) -eq 1) { "  " } else { [string]::new([char]0x2588, 2) }
         }
         Write-Output "$line$([char]0x2588)$([char]0x2588)"
     }
@@ -4091,7 +4185,7 @@ function New-QRCode {
     param(
         [Parameter(Mandatory)][string]$Data,
         [ValidateSet('L','M','Q','H')][string]$ECLevel = 'M',
-        [int]$Version = 0,
+        [object]$Version = 0,
         [string]$OutputPath,
         [int]$ModuleSize = 10,
         [int]$EciValue = 0,
@@ -4160,6 +4254,43 @@ function New-QRCode {
 
     $sw = [Diagnostics.Stopwatch]::StartNew()
     
+    # 0. Preparar Segmentos (común para QR y rMQR)
+    if ($Fnc1First -and $Fnc1Second) { throw "FNC1 solo admite primera o segunda posición" }
+    if ($Fnc1Second -and ($Fnc1ApplicationIndicator -lt 0 -or $Fnc1ApplicationIndicator -gt 255)) { throw "Fnc1ApplicationIndicator debe estar entre 0 y 255" }
+    if ($Model -eq 'M1' -and $Version -gt 14) { throw "Model 1 solo soporta versiones 1-14" }
+    
+    $useSA = ($StructuredAppendTotal -gt 0 -or $StructuredAppendIndex -ge 0 -or $StructuredAppendParity -ge 0)
+    if ($useSA) {
+        if ($StructuredAppendTotal -lt 1 -or $StructuredAppendTotal -gt 16) { throw "StructuredAppendTotal debe estar entre 1 y 16" }
+        if ($StructuredAppendIndex -lt 0 -or $StructuredAppendIndex -ge $StructuredAppendTotal) { throw "StructuredAppendIndex debe estar entre 0 y Total-1" }
+    }
+    
+    $dataSegments = Get-Segment $Data
+    $segments = New-Object System.Collections.Generic.List[hashtable]
+    
+    if ($useSA) {
+        $paritySource = if ([string]::IsNullOrEmpty($StructuredAppendParityData)) { $Data } else { $StructuredAppendParityData }
+        $parity = if ($StructuredAppendParity -ge 0) { $StructuredAppendParity } else { Get-StructuredAppendParity $paritySource }
+        if ($parity -lt 0 -or $parity -gt 255) { throw "StructuredAppendParity debe estar entre 0 y 255" }
+        $segments.Add(@{Mode='SA'; Index=$StructuredAppendIndex; Total=$StructuredAppendTotal; Parity=$parity})
+    }
+    
+    if ($Fnc1First) { $segments.Add(@{Mode='F1'}) }
+    elseif ($Fnc1Second) { $segments.Add(@{Mode='F2'; AppIndicator=$Fnc1ApplicationIndicator}) }
+    
+    if ($EciValue -gt 0) {
+        $segments.Add(@{Mode='ECI'; Data="$EciValue"})
+    } else {
+        $needsUtf8 = $false
+        foreach ($seg in $dataSegments) {
+            if ($seg.Mode -eq 'B' -and $seg.Data -match '[^ -~]') { $needsUtf8 = $true; break }
+        }
+        if ($needsUtf8) {
+            $segments.Add(@{Mode='ECI'; Data="26"})
+        }
+    }
+    foreach ($s in $dataSegments) { $segments.Add($s) }
+
     if ($Symbol -eq 'AUTO') {
         $modeAuto = GetMicroMode $Data
         $orderMv = @('M1','M2','M3','M4')
@@ -4340,57 +4471,63 @@ function New-QRCode {
         $sw.Stop()
         Write-Status "Tiempo: $($sw.ElapsedMilliseconds)ms"
         $final = $final
+        return $final
     } elseif ($Symbol -eq 'rMQR') {
         if ($ECLevel -ne 'M' -and $ECLevel -ne 'H') { throw "rMQR solo admite ECLevel 'M' o 'H'" }
         $ecUse = $ECLevel
-        $ordered = ($script:RMQR_SPEC.GetEnumerator() | Sort-Object { $_.Value.H } , { $_.Value.W })
         $chosenKey = $null
-        foreach ($kv in $ordered) {
-            $ver = $kv.Key; $spec = $kv.Value
-            $de = if ($ecUse -eq 'H') { $spec.H2 } else { $spec.M }
-            $capBitsDataTmp = $de.D * 8
-            
-            # Calcular bits necesarios para rMQR
-            $totalBits = 0
-            foreach ($seg in $segments) {
-                if ($seg.Mode -eq 'ECI') {
-                    $totalBits += 4 # Mode
-                    $val = [int]$seg.Data
-                    if ($val -lt 128) { $totalBits += 8 } elseif ($val -lt 16384) { $totalBits += 16 } else { $totalBits += 24 }
-                } elseif ($seg.Mode -eq 'SA') {
-                    throw "Structured Append no soportado en rMQR"
-                } elseif ($seg.Mode -eq 'F2') {
-                    $totalBits += 4; $totalBits += 8
-                } elseif ($seg.Mode -eq 'F1') {
-                    $totalBits += 4
-                } else {
-                    $totalBits += 4 # Mode
-                    # CCI rMQR
-                    $cbMap = Get-RMQRCountBitsMap $spec
-                    $cb = switch ($seg.Mode) { 'N' { $cbMap.N } 'A' { $cbMap.A } 'B' { $cbMap.B } 'K' { $cbMap.K } }
-                    $totalBits += $cb
-                    
-                    # Data
-                    $txt = $seg.Data
-                    if ($seg.Mode -eq 'N') {
-                        $full = [Math]::Floor($txt.Length / 3); $rem = $txt.Length % 3
-                        $bitsRem = 0; if($rem -eq 1){$bitsRem=4} elseif($rem -eq 2){$bitsRem=7}
-                        $totalBits += $full * 10 + $bitsRem
-                    } elseif ($seg.Mode -eq 'A') {
-                        $full = [Math]::Floor($txt.Length / 2); $rem = $txt.Length % 2
-                        $bitsRem = 0; if($rem -eq 1){$bitsRem=6}
-                        $totalBits += $full * 11 + $bitsRem
-                    } elseif ($seg.Mode -eq 'B') {
-                        $totalBits += $txt.Length * 8
-                    } elseif ($seg.Mode -eq 'K') {
-                        $full = [Math]::Floor($txt.Length / 2); $rem = $txt.Length % 2
-                        $bitsRem = 0; if($rem -eq 1){$bitsRem=8}
-                        $totalBits += $full * 13 + $bitsRem
+        
+        if ($Version -ne 0 -and $Version -ne $null -and $script:RMQR_SPEC.ContainsKey($Version)) {
+            $chosenKey = $Version
+        } else {
+            $ordered = ($script:RMQR_SPEC.GetEnumerator() | Sort-Object { $_.Value.H } , { $_.Value.W })
+            foreach ($kv in $ordered) {
+                $ver = $kv.Key; $spec = $kv.Value
+                $de = if ($ecUse -eq 'H') { $spec.H2 } else { $spec.M }
+                $capBitsDataTmp = $de.D * 8
+                
+                # Calcular bits necesarios para rMQR
+                $totalBits = 0
+                foreach ($seg in $segments) {
+                    if ($seg.Mode -eq 'ECI') {
+                        $totalBits += 4 # Mode
+                        $val = [int]$seg.Data
+                        if ($val -lt 128) { $totalBits += 8 } elseif ($val -lt 16384) { $totalBits += 16 } else { $totalBits += 24 }
+                    } elseif ($seg.Mode -eq 'SA') {
+                        throw "Structured Append no soportado en rMQR"
+                    } elseif ($seg.Mode -eq 'F2') {
+                        $totalBits += 4; $totalBits += 8
+                    } elseif ($seg.Mode -eq 'F1') {
+                        $totalBits += 4
+                    } else {
+                        $totalBits += 4 # Mode
+                        # CCI rMQR
+                        $cbMap = Get-RMQRCountBitsMap $spec
+                        $cb = switch ($seg.Mode) { 'N' { $cbMap.N } 'A' { $cbMap.A } 'B' { $cbMap.B } 'K' { $cbMap.K } }
+                        $totalBits += $cb
+                        
+                        # Data
+                        $txt = $seg.Data
+                        if ($seg.Mode -eq 'N') {
+                            $full = [Math]::Floor($txt.Length / 3); $rem = $txt.Length % 3
+                            $bitsRem = 0; if($rem -eq 1){$bitsRem=4} elseif($rem -eq 2){$bitsRem=7}
+                            $totalBits += $full * 10 + $bitsRem
+                        } elseif ($seg.Mode -eq 'A') {
+                            $full = [Math]::Floor($txt.Length / 2); $rem = $txt.Length % 2
+                            $bitsRem = 0; if($rem -eq 1){$bitsRem=6}
+                            $totalBits += $full * 11 + $bitsRem
+                        } elseif ($seg.Mode -eq 'B') {
+                            $totalBits += $txt.Length * 8
+                        } elseif ($seg.Mode -eq 'K') {
+                            $full = [Math]::Floor($txt.Length / 2); $rem = $txt.Length % 2
+                            $bitsRem = 0; if($rem -eq 1){$bitsRem=8}
+                            $totalBits += $full * 13 + $bitsRem
+                        }
                     }
                 }
+                
+                if ($totalBits -le $capBitsDataTmp) { $chosenKey = $ver; break }
             }
-            
-            if ($totalBits -le $capBitsDataTmp) { $chosenKey = $ver; break }
         }
         if (-not $chosenKey) { throw "Datos muy largos para rMQR" }
         $spec = $script:RMQR_SPEC[$chosenKey]
@@ -4452,22 +4589,48 @@ function New-QRCode {
         $bits = $cwBits
         $idx = 0
         $up = $true
+        [int[,]]$mMod = $m['Mod']
+        [bool[,]]$mFunc = $m['Func']
         for ($right = $w - 1; $right -ge 1; $right -= 2) {
-            if ($right -eq 6) { $right = 5 }
-            $rows = if ($up) { ($h - 1)..0 } else { 0..($h - 1) }
-            foreach ($row in $rows) {
-                for ($dc = 0; $dc -le 1; $dc++) {
-                    $col = $right - $dc
-                    if (-not $m.Func[$row,$col]) {
-                        $v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
-                        $m.Mod[$row,$col] = $v
-                        $idx++
+            # In QR codes, column 6 is reserved for timing patterns. rMQR does not have this internal timing column.
+            # However, the current logic for ExtractBitsRMQR also skips column 6.
+            # To maintain compatibility with the decoder and follow rMQR spec (which has no col 6 skip),
+            # we should ONLY skip column 6 if NOT rMQR. But wait, this loop is inside the rMQR block.
+            # So for rMQR, we should NOT skip column 6.
+            # if ($right -eq 6) { $right = 5 } 
+            
+            if ($up) {
+                for ([int]$row = $h - 1; $row -ge 0; $row--) {
+                    for ([int]$dc = 0; $dc -le 1; $dc++) {
+                        [int]$col = $right - $dc
+                        if ($null -ne $mFunc -and -not [bool]$mFunc.GetValue($row, $col)) {
+                            $v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
+                            $mMod.SetValue($v, $row, $col)
+                            $idx++
+                        }
+                    }
+                }
+            } else {
+                for ([int]$row = 0; $row -lt $h; $row++) {
+                    for ([int]$dc = 0; $dc -le 1; $dc++) {
+                        [int]$col = $right - $dc
+                        if ($null -ne $mFunc -and -not [bool]$mFunc.GetValue($row, $col)) {
+                            $v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
+                            $mMod.SetValue($v, $row, $col)
+                            $idx++
+                        }
                     }
                 }
             }
             $up = -not $up
         }
-        for ($r = 0; $r -lt $h; $r++) { for ($c = 0; $c -lt $w; $c++) { if (-not $m.Func[$r,$c]) { if ( (($r + $c) % 2) -eq 0 ) { $m.Mod[$r,$c] = 1 - $m.Mod[$r,$c] } } } }
+        for ($r = 0; $r -lt $h; $r++) { 
+            for ($c = 0; $c -lt $w; $c++) { 
+                if ($null -ne $mFunc -and -not [bool]$mFunc.GetValue($r, $c)) { 
+                    if ( (($r + $c) % 2) -eq 0 ) { $mMod.SetValue(1 - [int]$mMod.GetValue($r, $c), $r, $c) } 
+                } 
+            } 
+        }
         $ecBit = if ($ecUse -eq 'H') { 1 } else { 0 }
         $vi = $spec.VI
         $fmt6 = @($ecBit,
@@ -4489,15 +4652,19 @@ function New-QRCode {
         for ($i=0;$i -lt 18;$i++){ $fmtTL += ($fmt[$i] -bxor $script:RMQR_FMT_MASKS.TL[$i]) }
         $fmtBR = @()
         for ($i=0;$i -lt 18;$i++){ $fmtBR += ($fmt[$i] -bxor $script:RMQR_FMT_MASKS.BR[$i]) }
-        # TL Format Info
-        for ($i=0;$i -lt 6;$i++){ $m.Func[$i,7]=$true; $m.Mod[$i,7]=$fmtTL[$i] }
-        for ($i=0;$i -lt 6;$i++){ $m.Func[$i,8]=$true; $m.Mod[$i,8]=$fmtTL[$i+6] }
-        for ($i=0;$i -lt 6;$i++){ $m.Func[$i,9]=$true; $m.Mod[$i,9]=$fmtTL[$i+12] }
         
-        # BR Format Info
-        for ($i=0;$i -lt 6;$i++){ $m.Func[$i,($w-8)]=$true; $m.Mod[$i,($w-8)]=$fmtBR[$i] }
-        for ($i=0;$i -lt 6;$i++){ $m.Func[$i,($w-9)]=$true; $m.Mod[$i,($w-9)]=$fmtBR[$i+6] }
-        for ($i=0;$i -lt 6;$i++){ $m.Func[$i,($w-10)]=$true; $m.Mod[$i,($w-10)]=$fmtBR[$i+12] }
+        # Validar TL Format Info
+        for ($i=0;$i -lt 6;$i++){ $mFunc.SetValue($true, $i, 7); $mMod.SetValue($fmtTL[$i], $i, 7) }
+        for ($i=0;$i -lt 6;$i++){ $mFunc.SetValue($true, $i, 8); $mMod.SetValue($fmtTL[$i+6], $i, 8) }
+        for ($i=0;$i -lt 6;$i++){ $mFunc.SetValue($true, $i, 9); $mMod.SetValue($fmtTL[$i+12], $i, 9) }
+        
+        # Validar BR Format Info
+        for ($i=0;$i -lt 6;$i++){ 
+            [int]$row = $h - 6 + $i
+            $mFunc.SetValue($true, $row, ($w-11)); $mMod.SetValue($fmtBR[$i], $row, ($w-11))
+            $mFunc.SetValue($true, $row, ($w-10)); $mMod.SetValue($fmtBR[$i+6], $row, ($w-10))
+            $mFunc.SetValue($true, $row, ($w-9)); $mMod.SetValue($fmtBR[$i+12], $row, ($w-9))
+        }
         Write-Status "Version: R$h`x$w"
         Write-Status "EC: $ecUse"
         $cap = $script:RMQR_CAP[$chosenKey][$ecUse]
@@ -4536,43 +4703,6 @@ function New-QRCode {
     }
         return $m
     }
-    
-    if ($Fnc1First -and $Fnc1Second) { throw "FNC1 solo admite primera o segunda posiciÃ³n" }
-    if ($Fnc1Second -and ($Fnc1ApplicationIndicator -lt 0 -or $Fnc1ApplicationIndicator -gt 255)) { throw "Fnc1ApplicationIndicator debe estar entre 0 y 255" }
-    if ($Model -eq 'M1' -and $Version -gt 14) { throw "Model 1 solo soporta versiones 1-14" }
-    
-    $useSA = ($StructuredAppendTotal -gt 0 -or $StructuredAppendIndex -ge 0 -or $StructuredAppendParity -ge 0)
-    if ($useSA) {
-        if ($StructuredAppendTotal -lt 1 -or $StructuredAppendTotal -gt 16) { throw "StructuredAppendTotal debe estar entre 1 y 16" }
-        if ($StructuredAppendIndex -lt 0 -or $StructuredAppendIndex -ge $StructuredAppendTotal) { throw "StructuredAppendIndex debe estar entre 0 y Total-1" }
-    }
-    
-    $dataSegments = Get-Segment $Data
-    $segments = @()
-    
-    if ($useSA) {
-        $paritySource = if ([string]::IsNullOrEmpty($StructuredAppendParityData)) { $Data } else { $StructuredAppendParityData }
-        $parity = if ($StructuredAppendParity -ge 0) { $StructuredAppendParity } else { Get-StructuredAppendParity $paritySource }
-        if ($parity -lt 0 -or $parity -gt 255) { throw "StructuredAppendParity debe estar entre 0 y 255" }
-        $segments += @{Mode='SA'; Index=$StructuredAppendIndex; Total=$StructuredAppendTotal; Parity=$parity}
-    }
-    
-    if ($Fnc1First) { $segments += @{Mode='F1'} }
-    elseif ($Fnc1Second) { $segments += @{Mode='F2'; AppIndicator=$Fnc1ApplicationIndicator} }
-    
-    if ($EciValue -gt 0) {
-        $segments += @{Mode='ECI'; Data="$EciValue"}
-    } else {
-        $needsUtf8 = $false
-        foreach ($seg in $dataSegments) {
-            if ($seg.Mode -eq 'B' -and $seg.Data -match '[^ -~]') { $needsUtf8 = $true; break }
-        }
-        if ($needsUtf8) {
-            $segments += @{Mode='ECI'; Data="26"}
-        }
-    }
-    
-    $segments += $dataSegments
     
     # Display Segments info
     $modes = New-Object System.Collections.Generic.List[string]
@@ -4667,7 +4797,9 @@ function New-QRCode {
     Write-Status "Mascara: $mask"
     
     $final = ApplyMask $matrix $mask
-    AddFormat $final $ECLevel $mask
+    if ($Symbol -eq 'QR' -or ($Symbol -eq 'AUTO' -and $matrix.Size -ge 21)) {
+        AddFormat $final $ECLevel $mask
+    }
     
     $sw.Stop()
     Write-Status "Tiempo: $($sw.ElapsedMilliseconds)ms"
