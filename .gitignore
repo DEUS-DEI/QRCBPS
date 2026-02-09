@@ -1,4 +1,5 @@
 # Carpetas de salida generadas
+pdf
 salida_qr/
 # Imagenes generadas (pruebas, resultados)
 *.png

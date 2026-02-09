@@ -35,6 +35,7 @@ param(
     [switch]$Decode,
     [switch]$QualityReport,
     [string]$LogoPath = "",
+    [string]$SvgPath = "",
     [int]$LogoScale = 20,
     [string[]]$BottomText = @(),
     [string]$ForegroundColor = "#000000",
@@ -68,7 +69,8 @@ MODOS DE OPERACION:
   2. Batch:       Procesa un archivo TSV (-InputFile) o usa config.ini.
   3. Conversion:  Combina imagenes en un PDF usando -ImageDir y -Layout.
   4. Decodificar: Extrae datos de un QR (PNG/SVG) con -Decode -InputPath.
-  5. Interactivo: Sin parametros, inicia el menu visual.
+  5. SVG a PDF:   Convierte un SVG a PDF vectorial con -SvgPath -OutputPath.
+  6. Interactivo: Sin parametros, inicia el menu visual.
 
 FORMATOS DE DATOS AVANZADOS (Uso interno/Scripting):
   Puedes usar funciones auxiliares para generar contenido estructurado:
@@ -3166,6 +3168,303 @@ function ExportSvg {
     [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($path), $sb.ToString())
 }
 
+# ============================================================================
+# FUNCIONES DE CONVERSIÓN SVG A PDF (INTEGRADAS)
+# ============================================================================
+
+function Convert-SvgToPdf {
+    <#
+    .SYNOPSIS
+    Convierte archivos SVG a PDF manteniendo las propiedades vectoriales
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$SvgPath,
+        [Parameter(Mandatory=$true)]
+        [string]$PdfPath
+    )
+    if (-not (Test-Path $SvgPath)) { Write-Error "El archivo SVG no existe: $SvgPath"; return }
+    try { [xml]$svg = Get-Content $SvgPath -Raw -Encoding UTF8 } catch { Write-Error "Error al leer el archivo SVG: $_"; return }
+    $width = 595; $height = 842
+    if ($svg.svg.width) { $widthStr = $svg.svg.width -replace 'px|pt|mm|cm|in', ''; if ($widthStr -match '^[\d.]+$') { $width = [double]$widthStr } }
+    if ($svg.svg.height) { $heightStr = $svg.svg.height -replace 'px|pt|mm|cm|in', ''; if ($heightStr -match '^[\d.]+$') { $height = [double]$heightStr } }
+    $viewBoxTransform = $null
+    if ($svg.svg.viewBox) {
+        $vb = $svg.svg.viewBox -split '[\s,]+' | Where-Object { $_ }
+        if ($vb.Count -ge 4) {
+            $viewBoxTransform = @{
+                minX = [double]$vb[0]; minY = [double]$vb[1]
+                width = [double]$vb[2]; height = [double]$vb[3]
+                scaleX = $width / [double]$vb[2]; scaleY = $height / [double]$vb[3]
+            }
+        }
+    }
+    $contentStream = ""
+    if ($viewBoxTransform) {
+        $contentStream += "q`n"
+        $contentStream += "$($viewBoxTransform.scaleX) 0 0 $($viewBoxTransform.scaleY) $(-$viewBoxTransform.minX * $viewBoxTransform.scaleX) $(-$viewBoxTransform.minY * $viewBoxTransform.scaleY) cm`n"
+    }
+    $context = @{ height = $height; viewBoxTransform = $viewBoxTransform; gradients = @{}; currentX = 0; currentY = 0 }
+    if ($svg.svg.defs) { foreach ($def in $svg.svg.defs.ChildNodes) { if ($def.LocalName -match 'Gradient$') { $context.gradients[$def.id] = $def } } }
+    foreach ($element in $svg.svg.ChildNodes) { if ($element.NodeType -eq 'Element') { $contentStream += Convert-SvgElementToPdf -element $element -context $context } }
+    if ($viewBoxTransform) { $contentStream += "Q`n" }
+    $pdfObjects = New-Object System.Collections.ArrayList
+    [void]$pdfObjects.Add("1 0 obj`n<< /Type /Catalog /Pages 2 0 R >>`nendobj")
+    [void]$pdfObjects.Add("2 0 obj`n<< /Type /Pages /Kids [3 0 R] /Count 1 >>`nendobj")
+    [void]$pdfObjects.Add("3 0 obj`n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $width $height] /Contents 4 0 R /Resources << /ProcSet [/PDF /Text /ImageB /ImageC /ImageI] >> >>`nendobj")
+    $streamBytes = [System.Text.Encoding]::ASCII.GetBytes($contentStream)
+    [void]$pdfObjects.Add("4 0 obj`n<< /Length $($streamBytes.Length) >>`nstream`n$contentStream`nendstream`nendobj")
+    $pdfHeader = "%PDF-1.4`n"
+    $pdfBody = ($pdfObjects -join "`n") + "`n"
+    $offsets = @(0); $currentOffset = $pdfHeader.Length
+    foreach ($obj in $pdfObjects) { $offsets += $currentOffset; $currentOffset += $obj.Length + 1 }
+    $xref = "xref`n0 $($pdfObjects.Count + 1)`n"
+    foreach ($offset in $offsets) { if ($offset -eq 0) { $xref += "0000000000 65535 f `n" } else { $xref += ([string]$offset).PadLeft(10, '0') + " 00000 n `n" } }
+    $xrefOffset = $pdfHeader.Length + $pdfBody.Length
+    $trailer = "trailer`n<< /Size $($pdfObjects.Count + 1) /Root 1 0 R >>`nstartxref`n$xrefOffset`n%%EOF"
+    try {
+        [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($PdfPath), $pdfHeader + $pdfBody + $xref + $trailer, [System.Text.Encoding]::ASCII)
+        Write-Status "[OK] SVG convertido a PDF exitosamente en: $PdfPath"
+    } catch { Write-Error "Error al escribir el archivo PDF: $_" }
+}
+
+function Convert-SvgElementToPdf {
+    param($element, $context)
+    $commands = ""; $height = $context.height
+    if ($element.LocalName -in @('defs', 'title', 'desc', 'metadata')) { return "" }
+    $transform = $element.transform
+    if ($transform) { $commands += "q`n"; $commands += Convert-SvgTransformToPdf -transform $transform -height $height }
+    $opacity = $element.opacity; if ($opacity) { $commands += "/CA $opacity ca $opacity CA`n" }
+    switch ($element.LocalName) {
+        'rect' {
+            $x = [double]($element.x -replace '[^0-9.-]', '' -replace '^$', '0')
+            $y = [double]($element.y -replace '[^0-9.-]', '' -replace '^$', '0')
+            $w = [double]($element.width -replace '[^0-9.-]', '' -replace '^$', '0')
+            $h = [double]($element.height -replace '[^0-9.-]', '' -replace '^$', '0')
+            $rx = [double]($element.rx -replace '[^0-9.-]', '' -replace '^$', '0')
+            $ry = [double]($element.ry -replace '[^0-9.-]', '' -replace '^$', '0')
+            if (-not $ry -and $rx) { $ry = $rx } if (-not $rx -and $ry) { $rx = $ry }
+            $pdfY = $height - $y - $h
+            if ($rx -gt 0 -or $ry -gt 0) {
+                $k = 0.5522848
+                $commands += "$($x + $rx) $pdfY m`n$($x + $w - $rx) $pdfY l`n$($x + $w - $rx + $rx * $k) $pdfY $($x + $w) $($pdfY + $ry - $ry * $k) $($x + $w) $($pdfY + $ry) c`n"
+                $commands += "$($x + $w) $($pdfY + $h - $ry) l`n$($x + $w) $($pdfY + $h - $ry + $ry * $k) $($x + $w - $rx + $rx * $k) $($pdfY + $h) $($x + $w - $rx) $($pdfY + $h) c`n"
+                $commands += "$($x + $rx) $($pdfY + $h) l`n$($x + $rx - $rx * $k) $($pdfY + $h) $x $($pdfY + $h - $ry + $ry * $k) $x $($pdfY + $h - $ry) c`n"
+                $commands += "$x $($pdfY + $ry) l`n$x $($pdfY + $ry - $ry * $k) $($x + $rx - $rx * $k) $pdfY $($x + $rx) $pdfY c`nh`n"
+            } else { $commands += "$x $pdfY $w $h re`n" }
+            $commands += Get-PdfFillStrokeOperator -element $element -context $context
+        }
+        'circle' {
+            $cx = [double]($element.cx -replace '[^0-9.-]', '' -replace '^$', '0')
+            $cy = [double]($element.cy -replace '[^0-9.-]', '' -replace '^$', '0')
+            $r = [double]($element.r -replace '[^0-9.-]', '' -replace '^$', '0')
+            $pdfY = $height - $cy; $k = 0.5522848
+            $commands += "$($cx + $r) $pdfY m`n$($cx + $r) $($pdfY + $r * $k) $($cx + $r * $k) $($pdfY + $r) $cx $($pdfY + $r) c`n"
+            $commands += "$($cx - $r * $k) $($pdfY + $r) $($cx - $r) $($pdfY + $r * $k) $($cx - $r) $pdfY c`n"
+            $commands += "$($cx - $r) $($pdfY - $r * $k) $($cx - $r * $k) $($pdfY - $r) $cx $($pdfY - $r) c`n"
+            $commands += "$($cx + $r * $k) $($pdfY - $r) $($cx + $r) $($pdfY - $r * $k) $($cx + $r) $pdfY c`nh`n"
+            $commands += Get-PdfFillStrokeOperator -element $element -context $context
+        }
+        'ellipse' {
+            $cx = [double]($element.cx -replace '[^0-9.-]', '' -replace '^$', '0')
+            $cy = [double]($element.cy -replace '[^0-9.-]', '' -replace '^$', '0')
+            $rx = [double]($element.rx -replace '[^0-9.-]', '' -replace '^$', '0')
+            $ry = [double]($element.ry -replace '[^0-9.-]', '' -replace '^$', '0')
+            $pdfY = $height - $cy; $k = 0.5522848
+            $commands += "$($cx + $rx) $pdfY m`n$($cx + $rx) $($pdfY + $ry * $k) $($cx + $rx * $k) $($pdfY + $ry) $cx $($pdfY + $ry) c`n"
+            $commands += "$($cx - $rx * $k) $($pdfY + $ry) $($cx - $rx) $($pdfY + $ry * $k) $($cx - $rx) $pdfY c`n"
+            $commands += "$($cx - $rx) $($pdfY - $ry * $k) $($cx - $rx * $k) $($pdfY - $ry) $cx $($pdfY - $ry) c`n"
+            $commands += "$($cx + $rx * $k) $($pdfY - $ry) $($cx + $rx) $($pdfY - $ry * $k) $($cx + $rx) $pdfY c`nh`n"
+            $commands += Get-PdfFillStrokeOperator -element $element -context $context
+        }
+        'line' {
+            $x1 = [double]($element.x1 -replace '[^0-9.-]', '' -replace '^$', '0')
+            $y1 = [double]($element.y1 -replace '[^0-9.-]', '' -replace '^$', '0')
+            $x2 = [double]($element.x2 -replace '[^0-9.-]', '' -replace '^$', '0')
+            $y2 = [double]($element.y2 -replace '[^0-9.-]', '' -replace '^$', '0')
+            $commands += Get-PdfStrokeStyle -element $element -context $context
+            $commands += "$x1 $($height - $y1) m`n$x2 $($height - $y2) l`nS`n"
+        }
+        'polyline' {
+            $points = $element.points
+            if ($points) {
+                $coords = $points -split '[\s,]+' | Where-Object { $_ -match '^-?[\d.]+$' }
+                $commands += Get-PdfStrokeStyle -element $element -context $context
+                for ($i = 0; $i -lt $coords.Count; $i += 2) {
+                    if ($i + 1 -lt $coords.Count) {
+                        $x = [double]$coords[$i]; $y = [double]$coords[$i + 1]
+                        if ($i -eq 0) { $commands += "$x $($height - $y) m`n" } else { $commands += "$x $($height - $y) l`n" }
+                    }
+                }
+                $commands += "S`n"
+            }
+        }
+        'polygon' {
+            $points = $element.points
+            if ($points) {
+                $coords = $points -split '[\s,]+' | Where-Object { $_ -match '^-?[\d.]+$' }
+                $commands += Get-PdfStrokeStyle -element $element -context $context
+                for ($i = 0; $i -lt $coords.Count; $i += 2) {
+                    if ($i + 1 -lt $coords.Count) {
+                        $x = [double]$coords[$i]; $y = [double]$coords[$i + 1]
+                        if ($i -eq 0) { $commands += "$x $($height - $y) m`n" } else { $commands += "$x $($height - $y) l`n" }
+                    }
+                }
+                $commands += "h`n"; $commands += Get-PdfFillStrokeOperator -element $element -context $context
+            }
+        }
+        'path' {
+            $d = $element.d
+            if ($d) { $commands += Convert-SvgPathToPdf -pathData $d -context $context; $commands += Get-PdfFillStrokeOperator -element $element -context $context }
+        }
+        'text' {
+            $x = [double]($element.x -replace '[^0-9.-]', '' -replace '^$', '0')
+            $y = [double]($element.y -replace '[^0-9.-]', '' -replace '^$', '0')
+            $fontSize = if ($element.'font-size') { [double]($element.'font-size' -replace '[^0-9.-]', '') } else { 12 }
+            $text = $element.InnerText
+            if ($text) {
+                $fillVal = if ($element.fill) { $element.fill } else { "black" }
+                $fillRGB = Convert-ColorToRGB $fillVal
+                $commands += "BT`n/F1 $fontSize Tf`n$($fillRGB.r) $($fillRGB.g) $($fillRGB.b) rg`n$x $($height - $y) Td`n($text) Tj`nET`n"
+            }
+        }
+        'g' {
+            $commands += "q`n"
+            foreach ($child in $element.ChildNodes) { if ($child.NodeType -eq 'Element') { $commands += Convert-SvgElementToPdf -element $child -context $context } }
+            $commands += "Q`n"
+        }
+    }
+    if ($transform) { $commands += "Q`n" }
+    return $commands
+}
+
+function Convert-SvgPathToPdf {
+    param($pathData, $context)
+    $commands = ""; $height = $context.height
+    $tokens = $pathData -split '(?=[MmLlHhVvCcSsQqTtAaZz])' | Where-Object { $_.Trim() }
+    $currentX = 0.0; $currentY = 0.0; $startX = 0.0; $startY = 0.0; $lastControlX = 0.0; $lastControlY = 0.0; $lastCmd = ''
+    foreach ($token in $tokens) {
+        if (-not $token.Trim()) { continue }
+        $cmd = $token[0]; $paramsStr = $token.Substring(1).Trim(); $params = @()
+        if ($paramsStr) { $params = ($paramsStr -replace ',', ' ' -split '\s+') | Where-Object { $_ -match '^-?[\d.]+$' } | ForEach-Object { [double]$_ } }
+        switch ($cmd) {
+            'M' { for ($i=0; $i -lt $params.Count; $i+=2) { $x=$params[$i]; $y=$params[$i+1]; if ($i -eq 0) { $commands += "$x $($height-$y) m`n"; $startX=$x; $startY=$y } else { $commands += "$x $($height-$y) l`n" }; $currentX=$x; $currentY=$y } }
+            'm' { for ($i=0; $i -lt $params.Count; $i+=2) { if ($i-eq 0 -and $lastCmd-eq '') { $x=$params[$i]; $y=$params[$i+1] } else { $x=$currentX+$params[$i]; $y=$currentY+$params[$i+1] }; if ($i -eq 0) { $commands += "$x $($height-$y) m`n"; $startX=$x; $startY=$y } else { $commands += "$x $($height-$y) l`n" }; $currentX=$x; $currentY=$y } }
+            'L' { for ($i=0; $i -lt $params.Count; $i+=2) { $x=$params[$i]; $y=$params[$i+1]; $commands += "$x $($height-$y) l`n"; $currentX=$x; $currentY=$y } }
+            'l' { for ($i=0; $i -lt $params.Count; $i+=2) { $x=$currentX+$params[$i]; $y=$currentY+$params[$i+1]; $commands += "$x $($height-$y) l`n"; $currentX=$x; $currentY=$y } }
+            'H' { foreach ($x in $params) { $commands += "$x $($height-$currentY) l`n"; $currentX=$x } }
+            'h' { foreach ($dx in $params) { $currentX+=$dx; $commands += "$currentX $($height-$currentY) l`n" } }
+            'V' { foreach ($y in $params) { $commands += "$currentX $($height-$y) l`n"; $currentY=$y } }
+            'v' { foreach ($dy in $params) { $currentY+=$dy; $commands += "$currentX $($height-$currentY) l`n" } }
+            'C' { for ($i=0; $i -lt $params.Count; $i+=6) { $x1=$params[$i]; $y1=$params[$i+1]; $x2=$params[$i+2]; $y2=$params[$i+3]; $x=$params[$i+4]; $y=$params[$i+5]; $commands += "$x1 $($height-$y1) $x2 $($height-$y2) $x $($height-$y) c`n"; $lastControlX=$x2; $lastControlY=$y2; $currentX=$x; $currentY=$y } }
+            'c' { for ($i=0; $i -lt $params.Count; $i+=6) { $x1=$currentX+$params[$i]; $y1=$currentY+$params[$i+1]; $x2=$currentX+$params[$i+2]; $y2=$currentY+$params[$i+3]; $x=$currentX+$params[$i+4]; $y=$currentY+$params[$i+5]; $commands += "$x1 $($height-$y1) $x2 $($height-$y2) $x $($height-$y) c`n"; $lastControlX=$x2; $lastControlY=$y2; $currentX=$x; $currentY=$y } }
+            'S' { for ($i=0; $i -lt $params.Count; $i+=4) { $x1 = if ($lastCmd -in @('C','c','S','s')) { 2*$currentX-$lastControlX } else { $currentX }; $y1 = if ($lastCmd -in @('C','c','S','s')) { 2*$currentY-$lastControlY } else { $currentY }; $x2=$params[$i]; $y2=$params[$i+1]; $x=$params[$i+2]; $y=$params[$i+3]; $commands += "$x1 $($height-$y1) $x2 $($height-$y2) $x $($height-$y) c`n"; $lastControlX=$x2; $lastControlY=$y2; $currentX=$x; $currentY=$y } }
+            's' { for ($i=0; $i -lt $params.Count; $i+=4) { $x1 = if ($lastCmd -in @('C','c','S','s')) { 2*$currentX-$lastControlX } else { $currentX }; $y1 = if ($lastCmd -in @('C','c','S','s')) { 2*$currentY-$lastControlY } else { $currentY }; $x2=$currentX+$params[$i]; $y2=$currentY+$params[$i+1]; $x=$currentX+$params[$i+2]; $y=$currentY+$params[$i+3]; $commands += "$x1 $($height-$y1) $x2 $($height-$y2) $x $($height-$y) c`n"; $lastControlX=$x2; $lastControlY=$y2; $currentX=$x; $currentY=$y } }
+            'Q' {
+                for ($i=0; $i -lt $params.Count; $i+=4) {
+                    $x1 = $params[$i]; $y1 = $params[$i+1]; $x = $params[$i+2]; $y = $params[$i+3]
+                    $cx1 = $currentX + 2.0/3.0*($x1-$currentX); $cy1 = $currentY + 2.0/3.0*($y1-$currentY)
+                    $cx2 = $x + 2.0/3.0*($x1-$x); $cy2 = $y + 2.0/3.0*($y1-$y)
+                    $commands += "$cx1 $($height-$cy1) $cx2 $($height-$cy2) $x $($height-$y) c`n"
+                    $lastControlX=$x1; $lastControlY=$y1; $currentX=$x; $currentY=$y
+                }
+            }
+            'q' {
+                for ($i=0; $i -lt $params.Count; $i+=4) {
+                    $x1 = $currentX+$params[$i]; $y1 = $currentY+$params[$i+1]; $x = $currentX+$params[$i+2]; $y = $currentY+$params[$i+3]
+                    $cx1 = $currentX + 2.0/3.0*($x1-$currentX); $cy1 = $currentY + 2.0/3.0*($y1-$currentY)
+                    $cx2 = $x + 2.0/3.0*($x1-$x); $cy2 = $y + 2.0/3.0*($y1-$y)
+                    $commands += "$cx1 $($height-$cy1) $cx2 $($height-$cy2) $x $($height-$y) c`n"
+                    $lastControlX=$x1; $lastControlY=$y1; $currentX=$x; $currentY=$y
+                }
+            }
+            'A' { for ($i=0; $i -lt $params.Count; $i+=7) { $x = $params[$i+5]; $y = $params[$i+6]; $commands += "$x $($height-$y) l`n"; $currentX=$x; $currentY=$y } }
+            'a' { for ($i=0; $i -lt $params.Count; $i+=7) { $x = $currentX+$params[$i+5]; $y = $currentY+$params[$i+6]; $commands += "$x $($height-$y) l`n"; $currentX=$x; $currentY=$y } }
+            'Z' { $commands += "h`n"; $currentX=$startX; $currentY=$startY }
+            'z' { $commands += "h`n"; $currentX=$startX; $currentY=$startY }
+        }
+        $lastCmd = $cmd
+    }
+    $context.currentX = $currentX; $context.currentY = $currentY
+    return $commands
+}
+
+function Convert-SvgTransformToPdf {
+    param($transform, $height)
+    $commands = ""; $transforms = $transform -split '\)\s*' | Where-Object { $_ }
+    foreach ($t in $transforms) {
+        $t = $t.Trim() -replace '\($', ''
+        if ($t -match '^translate\s*\(\s*([^,\s]+)[\s,]*([^\)]*)') {
+            $tx = [double]$matches[1]; $ty = if ($matches[2]) { [double]$matches[2] } else { 0 }
+            $commands += "1 0 0 1 $tx $(-$ty) cm`n"
+        }
+        elseif ($t -match '^scale\s*\(\s*([^,\s]+)[\s,]*([^\)]*)') {
+            $sx = [double]$matches[1]; $sy = if ($matches[2]) { [double]$matches[2] } else { $sx }
+            $commands += "$sx 0 0 $sy 0 0 cm`n"
+        }
+        elseif ($t -match '^rotate\s*\(\s*([^,\s]+)[\s,]*([^,\s]*)[\s,]*([^\)]*)') {
+            $angle = [double]$matches[1]; $rad = $angle * [Math]::PI / 180.0; $cos = [Math]::Cos($rad); $sin = [Math]::Sin($rad)
+            if ($matches[2] -and $matches[3]) {
+                $cx = [double]$matches[2]; $cy = [double]$matches[3]
+                $commands += "1 0 0 1 $cx $(-$cy) cm`n$cos $sin $(-$sin) $cos 0 0 cm`n1 0 0 1 $(-$cx) $cy cm`n"
+            } else { $commands += "$cos $sin $(-$sin) $cos 0 0 cm`n" }
+        }
+        elseif ($t -match '^matrix\s*\(\s*([^,\s]+)[\s,]+([^,\s]+)[\s,]+([^,\s]+)[\s,]+([^,\s]+)[\s,]+([^,\s]+)[\s,]+([^\)]+)') {
+            $commands += "$($matches[1]) $($matches[2]) $($matches[3]) $($matches[4]) $($matches[5]) $(-[double]$matches[6]) cm`n"
+        }
+    }
+    return $commands
+}
+
+function Get-PdfFillStrokeOperator {
+    param($element, $context)
+    $fill = if ($element.fill) { $element.fill } else { "black" }
+    $stroke = if ($element.stroke) { $element.stroke } else { "none" }
+    $commands = ""
+    if ($fill -ne "none") {
+        if ($fill -match '^url\(#(.+)\)$') {
+            $gradId = $matches[1]
+            if ($context.gradients.ContainsKey($gradId)) {
+                $firstStop = $context.gradients[$gradId].stop | Select-Object -First 1
+                $fillStopColor = if ($firstStop.'stop-color') { $firstStop.'stop-color' } else { "black" }
+                $fillRGB = Convert-ColorToRGB $fillStopColor
+            } else { $fillRGB = @{r=0; g=0; b=0} }
+        } else { $fillRGB = Convert-ColorToRGB $fill }
+        $commands += "$($fillRGB.r) $($fillRGB.g) $($fillRGB.b) rg`n"
+    }
+    if ($stroke -ne "none") { $commands += Get-PdfStrokeStyle -element $element -context $context }
+    $fillRule = if ($element.'fill-rule') { $element.'fill-rule' } else { 'nonzero' }
+    $op = if ($fillRule -eq 'evenodd') { '*' } else { '' }
+    if ($fill -ne "none" -and $stroke -ne "none") { $commands += "B$op`n" }
+    elseif ($fill -ne "none") { $commands += "f$op`n" }
+    elseif ($stroke -ne "none") { $commands += "S`n" }
+    return $commands
+}
+
+function Get-PdfStrokeStyle {
+    param($element, $context)
+    $stroke = if ($element.stroke) { $element.stroke } else { "black" }
+    if ($stroke -eq "none") { return "" }
+    $strokeRGB = Convert-ColorToRGB $stroke
+    $width = [double]($element.'stroke-width' -replace '[^0-9.-]', '' -replace '^$', '1')
+    $cap = switch ($element.'stroke-linecap') { 'round' { 1 } 'square' { 2 } default { 0 } }
+    $join = switch ($element.'stroke-linejoin') { 'round' { 1 } 'bevel' { 2 } default { 0 } }
+    $dash = if ($element.'stroke-dasharray' -and $element.'stroke-dasharray' -ne 'none') { "[$(($element.'stroke-dasharray' -split '[\s,]+') -join ' ')] 0 d`n" } else { "" }
+    return "$($strokeRGB.r) $($strokeRGB.g) $($strokeRGB.b) RG`n$width w`n$cap J`n$join j`n$dash"
+}
+
+function Convert-ColorToRGB {
+    param($color)
+    if (-not $color) { return @{r=0; g=0; b=0} }
+    $color = $color.Trim().ToLower()
+    $named = @{ 'black'=@{r=0;g=0;b=0}; 'white'=@{r=1;g=1;b=1}; 'red'=@{r=1;g=0;b=0}; 'lime'=@{r=0;g=1;b=0}; 'blue'=@{r=0;g=0;b=1}; 'yellow'=@{r=1;g=1;b=0}; 'cyan'=@{r=0;g=1;b=1}; 'magenta'=@{r=1;g=0;b=1}; 'gray'=@{r=0.5;g=0.5;b=0.5}; 'orange'=@{r=1;g=0.647;b=0} }
+    if ($named.ContainsKey($color)) { return $named[$color] }
+    if ($color -match '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$') { return @{ r=[Convert]::ToInt32($matches[1],16)/255.0; g=[Convert]::ToInt32($matches[2],16)/255.0; b=[Convert]::ToInt32($matches[3],16)/255.0 } }
+    if ($color -match '^#([0-9a-f])([0-9a-f])([0-9a-f])$') { return @{ r=[Convert]::ToInt32($matches[1]*2,16)/255.0; g=[Convert]::ToInt32($matches[2]*2,16)/255.0; b=[Convert]::ToInt32($matches[3]*2,16)/255.0 } }
+    if ($color -match 'rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)') { return @{ r=[int]$matches[1]/255.0; g=[int]$matches[2]/255.0; b=[int]$matches[3]/255.0 } }
+    return @{r=0; g=0; b=0}
+}
+
 function ExportPdfMultiNative {
     param(
         [System.Collections.ArrayList]$pages, # Array de PSCustomObject con { type, m, scale, quiet, fg, bg, fg2, gradType, text, rounded, frame, frameColor, path, logoPath, logoScale }
@@ -3240,8 +3539,22 @@ function ExportPdfMultiNative {
         try {
             $ext = [System.IO.Path]::GetExtension($imgFilePath).ToLower()
             if ($ext -eq ".svg") {
-                Write-Warning "El logo SVG no es compatible con el formato PDF nativo. Por favor, use un logo PNG/JPG o exporte a SVG."
-                return $null
+                # Cargar el logo SVG y convertirlo a PDF nativo
+                [xml]$logoSvg = [System.IO.File]::ReadAllText([System.IO.Path]::GetFullPath($imgFilePath))
+                $root = $logoSvg.DocumentElement
+                $vBox = $root.viewBox
+                $lW = if ($root.width) { FromDot $root.width } else { 100 }
+                $lH = if ($root.height) { FromDot $root.height } else { 100 }
+                if ($vBox) {
+                    $partsRaw = $vBox -split '[ ,]+'
+                    $parts = New-Object System.Collections.Generic.List[string]
+                    foreach ($p in $partsRaw) { if ($p -ne "") { [void]$parts.Add($p) } }
+                    if ($parts.Count -ge 4) { $lW = FromDot $parts[2]; $lH = FromDot $parts[3] }
+                }
+                
+                # Convertir elementos del SVG a operadores PDF
+                $pdfOps = Convert-SvgElementToPdf -element $root
+                return @{ type="svg"; ops=$pdfOps; w=$lW; h=$lH }
             }
             $bmp = [System.Drawing.Bitmap]::FromFile($imgFilePath)
             $ms = [System.IO.MemoryStream]::new()
@@ -3596,6 +3909,54 @@ end
                     }
                 }
                 
+                # Dibujar logo si existe
+                if ($item.logoPath -and (Test-Path $item.logoPath)) {
+                    $imgInfo = if ($imageObjects.ContainsKey($item.logoPath)) { $imageObjects[$item.logoPath] } else { &$EmbedImage $item.logoPath }
+                    if ($imgInfo) {
+                        if (-not $imageObjects.ContainsKey($item.logoPath)) {
+                            if ($imgInfo.type -ne "svg") {
+                                $imgInfo.id = $objOffsets.Count + 1
+                                &$StartObj # Obj Image Data
+                                &$WriteStr "<< /Type /XObject /Subtype /Image /Width $($imgInfo.w) /Height $($imgInfo.h) /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length $($imgInfo.bytes.Length) >>`nstream`n"
+                                $bw.Write($imgInfo.bytes)
+                                &$WriteStr "`nendstream`nendobj`n"
+                            }
+                            $imageObjects[$item.logoPath] = $imgInfo
+                        }
+
+                        # Calcular escala del logo
+                        $minSide = if ($baseW -lt $baseH) { $baseW } else { $baseH }
+                        $lSizeUnits = ($minSide * $item.logoScale) / 100
+                        $lSize = $lSizeUnits * $scale
+                        
+                        $lx = ($baseW * $scale - $lSize) / 2
+                        $ly = ($baseH * $scale - $lSize) / 2
+
+                        # Limpiar área del logo (fondo blanco)
+                        [void]$contentSb.AppendLine("1 1 1 rg")
+                        [void]$contentSb.AppendLine("$(ToDot $lx) $(ToDot $ly) $(ToDot $lSize) $(ToDot $lSize) re f")
+                        $fgPdf = &$ToPdfColor $item.fg
+                        [void]$contentSb.AppendLine("$fgPdf rg")
+
+                        if ($imgInfo.type -eq "svg") {
+                            # Dibujar logo SVG vectorial
+                            $maxDim = if ($imgInfo.w -gt $imgInfo.h) { $imgInfo.w } else { $imgInfo.h }
+                            $sFact = $lSize / $maxDim
+                            $offX = $lx + ($lSize - ($imgInfo.w * $sFact)) / 2
+                            $offY = $ly + ($lSize - ($imgInfo.h * $sFact)) / 2
+                            
+                            [void]$contentSb.AppendLine("q 1 0 0 1 $(ToDot $offX) $(ToDot $offY) cm $(ToDot $sFact) 0 0 $(ToDot $sFact) 0 0 cm")
+                            [void]$contentSb.AppendLine($imgInfo.ops)
+                            [void]$contentSb.AppendLine("Q")
+                        } else {
+                            # Dibujar logo raster
+                            $imgName = "Im$($imgInfo.id)"
+                            $xObjects[$imgName] = $imgInfo.id
+                            [void]$contentSb.AppendLine("q $(ToDot $lSize) 0 0 $(ToDot $lSize) $(ToDot $lx) $(ToDot $ly) cm /$imgName Do Q")
+                        }
+                    }
+                }
+
                 [void]$contentSb.AppendLine("Q")
                 [void]$contentSb.AppendLine("EMC")
 
@@ -5508,7 +5869,7 @@ function Show-Menu {
                 if ([string]::IsNullOrWhiteSpace($out)) { $out = "codigo_qr.pdf" }
                 
                 if ($out -match "\.pdf$") {
-                    $m = New-QRCode -Data $data
+                    $m = New-QRCode -Data $data -LogoPath $LogoPath -LogoScale $LogoScale
                     $pages = New-Object System.Collections.ArrayList
                     $pages.Add([PSCustomObject]@{
                         type = "QR"
@@ -5521,11 +5882,13 @@ function Show-Menu {
                         rounded = 0
                         frame = ""
                         frameColor = ""
+                        logoPath = $LogoPath
+                        logoScale = $LogoScale
                     })
                     ExportPdfMultiNative -pages $pages -path $out
                     Write-Status "[OK] PDF generado: $out"
                 } else {
-                    New-QRCode -Data $data -OutputPath $out -ShowConsole
+                    New-QRCode -Data $data -OutputPath $out -ShowConsole -LogoPath $LogoPath -LogoScale $LogoScale
                 }
                 Read-Host "`nPresione Enter para continuar..."
             }
@@ -5569,7 +5932,7 @@ function Show-Menu {
                 if ($advData) {
                     $out = Read-Host "Nombre del archivo de salida [avanzado.pdf]"
                     if (-not $out) { $out = "avanzado.pdf" }
-                    New-QRCode -Data $advData -OutputPath $out -ShowConsole
+                    New-QRCode -Data $advData -OutputPath $out -ShowConsole -LogoPath $LogoPath -LogoScale $LogoScale
                     Write-Status "[OK] QR Avanzado generado."
                     Read-Host "`nPresione Enter para continuar..."
                 }
@@ -5668,6 +6031,11 @@ if ($MyInvocation.InvocationName -ne '.' -and $MyInvocation.InvocationName -ne '
     } catch {
         Write-Error "Error al decodificar: $_"
     }
+    } elseif (-not [string]::IsNullOrEmpty($SvgPath)) {
+        # Modo Conversión SVG a PDF (CLI)
+        $finalPath = if ($OutputPath) { $OutputPath } else { [System.IO.Path]::ChangeExtension($SvgPath, ".pdf") }
+        Write-Status "Convirtiendo SVG a PDF: $SvgPath -> $finalPath"
+        Convert-SvgToPdf -SvgPath $SvgPath -PdfPath $finalPath
     } elseif (-not [string]::IsNullOrEmpty($Data)) {
         # Modo CLI Directo (Un solo QR)
         New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole -Decode:$Decode -QualityReport:$QualityReport -LogoPath $LogoPath -LogoScale $LogoScale -BottomText $BottomText -ForegroundColor $ForegroundColor -ForegroundColor2 $ForegroundColor2 -BackgroundColor $BackgroundColor -Rounded $Rounded -ModuleShape $ModuleShape -GradientType $GradientType -FrameText $FrameText -FrameColor $FrameColor -FontFamily $FontFamily -GoogleFont $GoogleFont
