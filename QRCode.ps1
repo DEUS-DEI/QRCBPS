@@ -3069,6 +3069,7 @@ function ExportSvg {
 
     [void]$sb.Append("<g fill=""$fillColor"" transform=""translate($(ToDot $qrOffX), $(ToDot $qrOffY))"">")
     
+    $pathData = [System.Text.StringBuilder]::new()
     for ($r = 0; $r -lt $m.Size; $r++) {
         for ($c = 0; $c -lt $m.Size; $c++) {
             $x = $c + $quiet
@@ -3077,34 +3078,38 @@ function ExportSvg {
             if ((GetM $m $r $c) -eq 1) {
                 switch ($moduleShape) {
                     'circle' {
-                        [void]$sb.Append("<circle cx=""$(ToDot ($x + 0.5))"" cy=""$(ToDot ($y + 0.5))"" r=""0.5""/>")
+                        [void]$pathData.Append("M $(ToDot ($x+1)) $(ToDot ($y+0.5)) A 0.5 0.5 0 1 1 $(ToDot $x) $(ToDot ($y+0.5)) A 0.5 0.5 0 1 1 $(ToDot ($x+1)) $(ToDot ($y+0.5)) Z ")
                     }
                     'diamond' {
-                        [void]$sb.Append("<path d=""M $(ToDot ($x + 0.5)) $(ToDot $y) L $(ToDot ($x + 1)) $(ToDot ($y + 0.5)) L $(ToDot ($x + 0.5)) $(ToDot ($y + 1)) L $(ToDot $x) $(ToDot ($y + 0.5)) Z""/>")
+                        [void]$pathData.Append("M $(ToDot ($x + 0.5)) $(ToDot $y) L $(ToDot ($x + 1)) $(ToDot ($y + 0.5)) L $(ToDot ($x + 0.5)) $(ToDot ($y + 1)) L $(ToDot $x) $(ToDot ($y + 0.5)) Z ")
                     }
                     'star' {
-                        [System.Text.StringBuilder]$sbPoints = [System.Text.StringBuilder]::new()
                         for ($i = 0; $i -lt 10; $i++) {
                             $angle = [Math]::PI * ($i * 36 - 90) / 180
                             $rad = if ($i % 2 -eq 0) { 0.5 } else { 0.2 }
                             $px = $x + 0.5 + $rad * [Math]::Cos($angle)
                             $py = $y + 0.5 + $rad * [Math]::Sin($angle)
-                            [void]$sbPoints.Append("$(ToDot $px),$(ToDot $py) ")
+                            if ($i -eq 0) { [void]$pathData.Append("M $(ToDot $px) $(ToDot $py) ") }
+                            else { [void]$pathData.Append("L $(ToDot $px) $(ToDot $py) ") }
                         }
-                        [void]$sb.Append("<polygon points=""$($sbPoints.ToString().Trim())""/>")
+                        [void]$pathData.Append("Z ")
                     }
                     'rounded' {
                         $rad = $rounded / 100
                         if ($rad -gt 0.5) { $rad = 0.5 }
                         if ($rad -le 0) { $rad = 0.2 }
-                        [void]$sb.Append("<rect x=""$(ToDot $x)"" y=""$(ToDot $y)"" width=""1"" height=""1"" rx=""$(ToDot $rad)"" ry=""$(ToDot $rad)""/>")
+                        $d = $rad * 2
+                        [void]$pathData.Append("M $(ToDot ($x+$rad)) $(ToDot $y) h $(ToDot (1-$d)) a $rad $rad 0 0 1 $rad $rad v $(ToDot (1-$d)) a $rad $rad 0 0 1 -$rad $rad h -$(ToDot (1-$d)) a $rad $rad 0 0 1 -$rad -$rad v -$(ToDot (1-$d)) a $rad $rad 0 0 1 $rad -$rad Z ")
                     }
                     default { # square
-                        [void]$sb.Append("<rect x=""$(ToDot $x)"" y=""$(ToDot $y)"" width=""1"" height=""1""/>")
+                        [void]$pathData.Append("M $(ToDot $x) $(ToDot $y) h 1 v 1 h -1 Z ")
                     }
                 }
             }
         }
+    }
+    if ($pathData.Length -gt 0) {
+        [void]$sb.Append("<path d=""$($pathData.ToString().Trim())""/>")
     }
     [void]$sb.Append("</g>")
 

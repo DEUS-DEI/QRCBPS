@@ -196,7 +196,7 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
   - **Procesamiento en Paralelo**: ✅ Implementado mediante `RunspacePool` para máxima eficiencia en lotes.
   - **Caché de Símbolos**: ✅ Implementado mediante reutilización de matrices de patrones fijos y máscaras pre-calculadas.
   - **Optimización de Matriz**: Migración de Hashtables a arrays 1D para reducir memoria y ganar velocidad.
-  - **Optimización SVG**: Agrupación de módulos en un solo `<path>` para reducir el tamaño del archivo.
+  - **Optimización SVG**: ✅ Agrupación de módulos en un solo `<path>` para reducir el tamaño del archivo.
   - **Compresión PDF**: Implementación de filtro `/FlateDecode` en streams de contenido nativos.
   - **Máscaras en Paralelo**: Evaluación concurrente de las 8 máscaras estándar para ganar velocidad en V20+.
   - **Optimización GetPenalty**: Eliminación de conversiones intermedias de matriz para reducir ciclos de CPU.
@@ -257,4 +257,4 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 - **Restricciones**: No se implementan formatos propietarios cerrados como **SQRC** o **iQR**, ya que requieren algoritmos de cifrado y licencias específicas de DENSO WAVE.
 
 ---
-*Documentación actualizada al 28 de enero de 2026. Cumplimiento verificado bajo estándares ISO/IEC 18004:2024.*
+*Documentación actualizada al 9 de febrero de 2026. Cumplimiento verificado bajo estándares ISO/IEC 18004:2024.*
