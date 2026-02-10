@@ -58,6 +58,12 @@ param(
     [switch]$Help
 )
 
+# Activar modo estricto para mayor robustez
+Set-StrictMode -Version 2.0
+
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Numerics
+
 function Show-Help {
     Write-Host @"
 ==========================================================
@@ -155,8 +161,8 @@ function IsF([hashtable]$m, [int]$r, [int]$c) {
 }
 
 function AddFinder([hashtable]$m, [int]$r, [int]$c) {
-    [int]$h = if ($m.Height) { $m.Height } else { $m.Size }
-    [int]$w = if ($m.Width) { $m.Width } else { $m.Size }
+    [int]$h = if ($m.ContainsKey('Height')) { $m.Height } else { $m.Size }
+    [int]$w = if ($m.ContainsKey('Width')) { $m.Width } else { $m.Size }
     [int[]]$mMod = $m.Mod
     [bool[]]$mFunc = $m.Func
 
@@ -180,7 +186,7 @@ function AddFinder([hashtable]$m, [int]$r, [int]$c) {
 }
 
 function AddAlign([hashtable]$m, [int]$r, [int]$c) {
-    [int]$w = if ($m.Width) { $m.Width } else { $m.Size }
+    [int]$w = if ($m.ContainsKey('Width')) { $m.Width } else { $m.Size }
     [int[]]$mMod = $m.Mod
     [bool[]]$mFunc = $m.Func
     for ([int]$dy = -2; $dy -le 2; $dy++) {
@@ -519,31 +525,35 @@ function InitRMQRMatrix([hashtable]$spec) {
 
     [int]$h = $spec['H']; [int]$w = $spec['W']
     [hashtable]$m = NewMRect $h $w
-    [int[,]]$mMod = $m['Mod']
-    [bool[,]]$mFunc = $m['Func']
+    [int[]]$mMod = $m['Mod']
+    [bool[]]$mFunc = $m['Func']
     
     # 1. Finder Pattern (7x7) at (0,0)
     for ([int]$r = 0; $r -lt 7; $r++) {
+        [int]$rowOff = $r * $w
         for ([int]$c = 0; $c -lt 7; $c++) {
-            $mFunc.SetValue($true, $r, $c)
+            [int]$off = $rowOff + $c
+            $mFunc[$off] = $true
             [bool]$on = ($r -eq 0 -or $r -eq 6 -or $c -eq 0 -or $c -eq 6) -or 
                         ($r -ge 2 -and $r -le 4 -and $c -ge 2 -and $c -le 4)
-            $mMod.SetValue([int]$on, $r, $c)
+            $mMod[$off] = [int]$on
         }
     }
     # Separador FP: Solo en el lado derecho para rMQR (ISO 23941 7.3.3)
     # Solo hasta la fila 6, ya que no hay separador horizontal en la fila 7
     for ([int]$i = 0; $i -le 6; $i++) {
-        if ($i -lt $h -and 7 -lt $w) { $mFunc.SetValue($true, $i, 7) }
+        if ($i -lt $h -and 7 -lt $w) { $mFunc[$i * $w + 7] = $true }
     }
 
     # 2. Finder Sub-pattern (5x5) at (h-5, w-5)
     [int]$fspR = $h - 5; [int]$fspC = $w - 5
     for ([int]$r = 0; $r -lt 5; $r++) {
+        [int]$rowOff = ($fspR + $r) * $w
         for ([int]$c = 0; $c -lt 5; $c++) {
-            $mFunc.SetValue($true, $fspR + $r, $fspC + $c)
+            [int]$off = $rowOff + $fspC + $c
+            $mFunc[$off] = $true
             [bool]$on = ($r -eq 0 -or $r -eq 4 -or $c -eq 0 -or $c -eq 4) -or ($r -eq 2 -and $c -eq 2)
-            $mMod.SetValue([int]$on, $fspR + $r, $fspC + $c)
+            $mMod[$off] = [int]$on
         }
     }
     # rMQR Finder Sub-pattern NO tiene separador según ISO 23941
@@ -552,16 +562,21 @@ function InitRMQRMatrix([hashtable]$spec) {
     # Horizontal: Row 0, 6, h-1
     for ([int]$c = 0; $c -lt $w; $c++) {
         [int]$v = 1 - ($c % 2)
-        if (-not [bool]$mFunc.GetValue(0, $c)) { $mMod.SetValue($v, 0, $c); $mFunc.SetValue($true, 0, $c) }
-        if (-not [bool]$mFunc.GetValue(6, $c)) { $mMod.SetValue($v, 6, $c); $mFunc.SetValue($true, 6, $c) }
-        if (-not [bool]$mFunc.GetValue($h - 1, $c)) { $mMod.SetValue($v, $h - 1, $c); $mFunc.SetValue($true, $h - 1, $c) }
+        if (-not $mFunc[$c]) { $mMod[$c] = $v; $mFunc[$c] = $true }
+        [int]$off6 = 6 * $w + $c
+        if (-not $mFunc[$off6]) { $mMod[$off6] = $v; $mFunc[$off6] = $true }
+        [int]$offH1 = ($h - 1) * $w + $c
+        if (-not $mFunc[$offH1]) { $mMod[$offH1] = $v; $mFunc[$offH1] = $true }
     }
     # Vertical: Col 0, 6, w-1
     for ([int]$r = 0; $r -lt $h; $r++) {
         [int]$v = 1 - ($r % 2)
-        if (-not [bool]$mFunc.GetValue($r, 0)) { $mMod.SetValue($v, $r, 0); $mFunc.SetValue($true, $r, 0) }
-        if (-not [bool]$mFunc.GetValue($r, 6)) { $mMod.SetValue($v, $r, 6); $mFunc.SetValue($true, $r, 6) }
-        if (-not [bool]$mFunc.GetValue($r, $w - 1)) { $mMod.SetValue($v, $r, $w - 1); $mFunc.SetValue($true, $r, $w - 1) }
+        [int]$rowOff = $r * $w
+        if (-not $mFunc[$rowOff]) { $mMod[$rowOff] = $v; $mFunc[$rowOff] = $true }
+        [int]$off6 = $rowOff + 6
+        if (-not $mFunc[$off6]) { $mMod[$off6] = $v; $mFunc[$off6] = $true }
+        [int]$offW1 = $rowOff + $w - 1
+        if (-not $mFunc[$offW1]) { $mMod[$offW1] = $v; $mFunc[$offW1] = $true }
     }
     
     # 4. Alignment Patterns (Columnas específicas de timing)
@@ -574,24 +589,32 @@ function InitRMQRMatrix([hashtable]$spec) {
     
     foreach ($ac in $apCols) {
         for ([int]$ar = 0; $ar -lt $h; $ar++) {
-            if (-not [bool]$mFunc.GetValue($ar, $ac)) {
-                $mMod.SetValue((1 - ($ar % 2)), $ar, $ac); $mFunc.SetValue($true, $ar, $ac)
+            [int]$off = $ar * $w + $ac
+            if (-not $mFunc[$off]) {
+                $mMod[$off] = (1 - ($ar % 2)); $mFunc[$off] = $true
             }
         }
     }
 
     # 5. Format Info areas
     # TL: Columns 7, 8, 9 (rows 0-5)
-    for ([int]$i=0;$i -lt 6;$i++){ $mFunc.SetValue($true, $i, 7); $mFunc.SetValue($true, $i, 8); $mFunc.SetValue($true, $i, 9) }
+    for ([int]$i=0;$i -lt 6;$i++){ 
+        [int]$rowOff = $i * $w
+        $mFunc[$rowOff + 7] = $true; $mFunc[$rowOff + 8] = $true; $mFunc[$rowOff + 9] = $true 
+    }
     # BR: Columns w-11, w-10, w-9 (rows h-6 to h-1)
     for ([int]$i=0;$i -lt 6;$i++){ 
-        [int]$row = $h - 6 + $i
-        $mFunc.SetValue($true, $row, ($w-11)); $mFunc.SetValue($true, $row, ($w-10)); $mFunc.SetValue($true, $row, ($w-9)) 
+        [int]$rowOff = ($h - 6 + $i) * $w
+        $mFunc[$rowOff + $w - 11] = $true; $mFunc[$rowOff + $w - 10] = $true; $mFunc[$rowOff + $w - 9] = $true 
     }
-
+    
+    # 6. Alignment Sub-patterns (rMQR specific)
+    # Ver ISO 23941 Tabla 10 para posiciones exactas de ASP
+    # Simplificado: ya cubiertos por timing/finders en su mayoría
+    
     # DEBUG: Count functional modules
     [int]$fCount = 0
-    for($r=0;$r -lt $h;$r++){ for($c=0;$c -lt $w;$c++){ if([bool]$mFunc.GetValue($r,$c)){ $fCount++ } } }
+    for ([int]$i = 0; $i -lt $mFunc.Length; $i++) { if ($mFunc[$i]) { $fCount++ } }
     Write-Status "InitRMQRMatrix: $cacheKey - Functional modules: $fCount, Data modules: $($h*$w - $fCount)"
 
     $script:MATRIX_CACHE[$cacheKey] = CopyM $m
@@ -723,18 +746,19 @@ function Import-QRCode($path) {
         $height = $hUnits - 2 * $quiet
         
         [hashtable]$m = NewMRect $height $width
-        [int[,]]$mMod = $m.Mod
-        [bool[,]]$mFunc = $m.Func
+        [int[]]$mMod = $m.Mod
+        [bool[]]$mFunc = $m.Func
         foreach($r in $rects) {
             [int]$col = [int][double]$r.Attributes["x"].Value - $quiet
             [int]$row = [int][double]$r.Attributes["y"].Value - $quiet
             if ($row -ge 0 -and $row -lt $height -and $col -ge 0 -and $col -lt $width) {
-                $mMod.SetValue(1, $row, $col)
+                $mMod[$row * $width + $col] = 1
             }
         }
         for([int]$r=0; $r -lt $height; $r++) {
+            [int]$rowOff = $r * $width
             for([int]$c=0; $c -lt $width; $c++) {
-                $mFunc.SetValue($false, $r, $c)
+                $mFunc[$rowOff + $c] = $false
             }
         }
         return $m
@@ -779,18 +803,20 @@ function Import-QRCode($path) {
             [int]$modH = [int][Math]::Round($h / $scale) - 2 * $quietY
             
             [hashtable]$m = NewMRect $modH $modW
-            [int[,]]$mMod = $m.Mod
-            [bool[,]]$mFunc = $m.Func
+            [int[]]$mMod = $m.Mod
+            [bool[]]$mFunc = $m.Func
             for([int]$r=0; $r -lt $modH; $r++) {
+                [int]$rowOff = $r * $modW
                 for([int]$c=0; $c -lt $modW; $c++) {
                     [int]$sampleX = ($c + $quietX) * $scale + [int][Math]::Floor($scale / 2)
                     [int]$sampleY = ($r + $quietY) * $scale + [int][Math]::Floor($scale / 2)
+                    [int]$off = $rowOff + $c
                     if ($sampleX -lt $w -and $sampleY -lt $h) {
-                        $mMod.SetValue((if($bmp.GetPixel($sampleX, $sampleY).R -lt 128){ 1 } else { 0 }), $r, $c)
+                        $mMod[$off] = (if($bmp.GetPixel($sampleX, $sampleY).R -lt 128){ 1 } else { 0 })
                     } else {
-                        $mMod.SetValue(0, $r, $c)
+                        $mMod[$off] = 0
                     }
-                    $mFunc.SetValue($false, $r, $c)
+                    $mFunc[$off] = $false
                 }
             }
             return $m
@@ -1196,19 +1222,23 @@ function InitMicroM([string]$ver) {
 
     [int]$size = GetMicroSize $ver
     [hashtable]$m = NewM $size
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int[]]$mMod = $m['Mod']
+    [bool[]]$mFunc = $m['Func']
     
     AddFinder $m 0 0
     for ([int]$i = 7; $i -lt $size; $i++) {
         [bool]$v = ($i % 2) -eq 0
-        if (-not [bool]$mFunc.GetValue(6, $i)) { $mMod.SetValue([int]$v, 6, $i); $mFunc.SetValue($true, 6, $i) }
-        if (-not [bool]$mFunc.GetValue($i, 6)) { $mMod.SetValue([int]$v, $i, 6); $mFunc.SetValue($true, $i, 6) }
+        [int]$offH = 6 * $size + $i
+        [int]$offV = $i * $size + 6
+        if (-not $mFunc[$offH]) { $mMod[$offH] = [int]$v; $mFunc[$offH] = $true }
+        if (-not $mFunc[$offV]) { $mMod[$offV] = [int]$v; $mFunc[$offV] = $true }
     }
     for ([int]$i = 0; $i -lt 9; $i++) {
         if ($i -lt $size) {
-            if (-not [bool]$mFunc.GetValue(8, $i)) { $mFunc.SetValue($true, 8, $i) }
-            if (-not [bool]$mFunc.GetValue($i, 8)) { $mFunc.SetValue($true, $i, 8) }
+            [int]$offH = 8 * $size + $i
+            [int]$offV = $i * $size + 8
+            if (-not $mFunc[$offH]) { $mFunc[$offH] = $true }
+            if (-not $mFunc[$offV]) { $mFunc[$offV] = $true }
         }
     }
     
@@ -1217,18 +1247,15 @@ function InitMicroM([string]$ver) {
     return $m
 }
 
-function GetMicroTotalCw([string]$ver) {
+function GetMicroTotalModules([string]$ver) {
     [hashtable]$m = InitMicroM $ver
     [int]$dataModules = 0
-    [int]$size = $m.Size
-    [bool[,]]$mFunc = $m.Func
+    [bool[]]$mFunc = $m.Func
     
-    for ([int]$r = 0; $r -lt $size; $r++) {
-        for ([int]$c = 0; $c -lt $size; $c++) {
-            if (-not [bool]$mFunc.GetValue($r, $c)) { $dataModules++ }
-        }
+    for ([int]$i = 0; $i -lt $mFunc.Length; $i++) {
+        if (-not $mFunc[$i]) { $dataModules++ }
     }
-    return [int][Math]::Floor($dataModules / 8)
+    return $dataModules
 }
 
 function AddFormatMicro($m, $ec, $mask) {
@@ -1255,7 +1282,7 @@ function FindBestMaskMicro($m) {
     [int]$size = [int]$m.Size
     for ($p = 0; $p -lt 4; $p++) {
         $maskedData = ApplyMask $m $p
-        $pen = GetPenalty $maskedData $size
+        $pen = GetPenalty $maskedData.Mod $size
         if ($pen -lt $min) { $min = $pen; $best = $p }
     }
     return $best
@@ -1397,7 +1424,7 @@ function Get-Segment([string]$txt) {
         
         $i += $mLen
     }
-    return $segs.ToArray()
+    return $segs
 }
 
 function Encode([array]$segments, [int]$ver, [string]$ec) {
@@ -1651,9 +1678,10 @@ function ReadFormatInfoMicro([hashtable]$m) {
     # (8,0)..(8,7) and (0,8)..(7,8) - Actually standard says:
     # (8,1)..(8,8) and (1,8)..(7,8)
     [int]$valBits = 0
-    [int[,]]$mMod = $m.Mod
-    for ([int]$i=1;$i -le 8;$i++){ $valBits = ($valBits -shl 1) -bor [int]$mMod.GetValue(8,$i) }
-    for ([int]$i=7;$i -ge 1;$i--){ $valBits = ($valBits -shl 1) -bor [int]$mMod.GetValue($i,8) }
+    [int]$size = [int]$m.Size
+    [int[]]$mMod = $m.Mod
+    for ([int]$i=1;$i -le 8;$i++){ $valBits = ($valBits -shl 1) -bor [int]$mMod[8 * $size + $i] }
+    for ([int]$i=7;$i -ge 1;$i--){ $valBits = ($valBits -shl 1) -bor [int]$mMod[$i * $size + 8] }
     
     [int]$mask = 0x4445
     [int]$val = $valBits -bxor $mask
@@ -1681,15 +1709,17 @@ function ExtractBitsMicro([hashtable]$m) {
     [int]$size = [int]$m.Size
     [System.Collections.Generic.List[int]]$bits = New-Object "System.Collections.Generic.List[int]"
     [bool]$up = $true
-    [bool[,]]$mFunc = $m.Func
-    [int[,]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
+    [int[]]$mMod = $m.Mod
     for ([int]$col = $size - 1; $col -gt 0; $col -= 2) {
         if ($col -eq 6) { $col-- }
         for ([int]$r = 0; $r -lt $size; $r++) {
             [int]$row = if ($up) { $size - 1 - $r } else { $r }
+            [int]$rowOff = $row * $size
             for ([int]$c = 0; $c -lt 2; $c++) {
-                if (-not [bool]$mFunc.GetValue($row, $col - $c)) {
-                    [void]$bits.Add([int]$mMod.GetValue($row, $col - $c))
+                [int]$off = $rowOff + $col - $c
+                if (-not [bool]$mFunc[$off]) {
+                    [void]$bits.Add([int]$mMod[$off])
                 }
             }
         }
@@ -2074,7 +2104,11 @@ function ApplyMask([hashtable]$m, [int]$p) {
         }
         $data[$i] = $v
     }
-    return $data
+    
+    # Return a new matrix object instead of just the array
+    [hashtable]$nm = CopyM $m
+    $nm.Mod = $data
+    return $nm
 }
 
 function GetPenalty([int[]]$data, [int]$size) {
@@ -2598,7 +2632,7 @@ function AddFormat([hashtable]$m, [string]$ec, [int]$mask) {
 function ExportPng {
     [CmdletBinding(SupportsShouldProcess)]
     param(
-        $m,
+        [hashtable]$m,
         [string]$path,
         [int]$scale,
         [int]$quiet,
@@ -2621,29 +2655,29 @@ function ExportPng {
     if (-not $ReturnBitmap -and -not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
     Add-Type -AssemblyName System.Drawing
     
-    $size = $m.Size
-    $baseUnits = $size + ($quiet * 2)
+    [int]$size = $m['Size']
+    [int]$baseUnits = $size + ($quiet * 2)
     
     # Calcular Frame
-    $frameSizeUnits = 0
+    [int]$frameSizeUnits = 0
     if ($frameText) { $frameSizeUnits = 4 }
     
     # Calcular altura adicional para texto
-    $textHeightUnits = 0
-    $lineHeightUnits = 3
-    $textPaddingUnits = 1
+    [int]$textHeightUnits = 0
+    [int]$lineHeightUnits = 3
+    [int]$textPaddingUnits = 1
     if ($bottomText.Count -gt 0) {
         $textHeightUnits = ($bottomText.Count * $lineHeightUnits) + $textPaddingUnits
     }
     
-    $wUnits = $baseUnits + ($frameSizeUnits * 2)
-    $hUnits = $baseUnits + ($frameSizeUnits * 2) + $textHeightUnits
+    [int]$wUnits = $baseUnits + ($frameSizeUnits * 2)
+    [int]$hUnits = $baseUnits + ($frameSizeUnits * 2) + $textHeightUnits
     
-    $widthPx = $wUnits * $scale
-    $heightPx = $hUnits * $scale
+    [int]$widthPx = $wUnits * $scale
+    [int]$heightPx = $hUnits * $scale
     
-    $bmp = [Drawing.Bitmap]::new([int]$widthPx, [int]$heightPx)
-    $g = [Drawing.Graphics]::FromImage($bmp)
+    [Drawing.Bitmap]$bmp = [Drawing.Bitmap]::new($widthPx, $heightPx)
+    [Drawing.Graphics]$g = [Drawing.Graphics]::FromImage($bmp)
     
     if ($EInk) {
         $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::None
@@ -2732,8 +2766,8 @@ function ExportPng {
     # Optimización: Usar un solo GraphicsPath para todos los módulos
     $mainPath = [Drawing.Drawing2D.GraphicsPath]::new()
     
-    for ($r = 0; $r -lt $m.Size; $r++) {
-        for ($c = 0; $c -lt $m.Size; $c++) {
+    for ($r = 0; $r -lt $size; $r++) {
+        for ($c = 0; $c -lt $size; $c++) {
             $x = ($c + $quiet) * $scale
             $y = ($r + $quiet) * $scale
             
@@ -2851,7 +2885,7 @@ function ExportPng {
 function ExportPngRect {
     [CmdletBinding(SupportsShouldProcess)]
     param(
-        $m,
+        [hashtable]$m,
         [string]$path,
         [int]$scale,
         [int]$quiet,
@@ -2868,34 +2902,35 @@ function ExportPngRect {
         [string]$fontFamily = "Arial, sans-serif",
         [string]$googleFont = "",
         [string]$moduleShape = "square",
-        [switch]$EInk
+        [switch]$EInk,
+        [switch]$ReturnBitmap
     )
-    if (-not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
+    if (-not $ReturnBitmap -and -not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
     Add-Type -AssemblyName System.Drawing
     
-    $wUnits = $m.Width + ($quiet * 2)
-    $hUnits = $m.Height + ($quiet * 2)
+    [int]$wUnits = $m['Width'] + ($quiet * 2)
+    [int]$hUnits = $m['Height'] + ($quiet * 2)
     
     # Calcular Frame
-    $frameSizeUnits = 0
+    [int]$frameSizeUnits = 0
     if ($frameText) { $frameSizeUnits = 4 }
     
     # Calcular altura adicional para texto
-    $textHeightUnits = 0
-    $lineHeightUnits = 3
-    $textPaddingUnits = 1
+    [int]$textHeightUnits = 0
+    [int]$lineHeightUnits = 3
+    [int]$textPaddingUnits = 1
     if ($bottomText.Count -gt 0) {
         $textHeightUnits = ($bottomText.Count * $lineHeightUnits) + $textPaddingUnits
     }
     
-    $finalWUnits = $wUnits + ($frameSizeUnits * 2)
-    $finalHUnits = $hUnits + ($frameSizeUnits * 2) + $textHeightUnits
+    [int]$finalWUnits = $wUnits + ($frameSizeUnits * 2)
+    [int]$finalHUnits = $hUnits + ($frameSizeUnits * 2) + $textHeightUnits
     
-    $widthPx = $finalWUnits * $scale
-    $heightPx = $finalHUnits * $scale
+    [int]$widthPx = $finalWUnits * $scale
+    [int]$heightPx = $finalHUnits * $scale
     
-    $bmp = [Drawing.Bitmap]::new([int]$widthPx, [int]$heightPx)
-    $g = [Drawing.Graphics]::FromImage($bmp)
+    [Drawing.Bitmap]$bmp = [Drawing.Bitmap]::new($widthPx, $heightPx)
+    [Drawing.Graphics]$g = [Drawing.Graphics]::FromImage($bmp)
     
     if ($EInk) {
         $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::None
@@ -2986,8 +3021,10 @@ function ExportPngRect {
     # Optimización: Usar un solo GraphicsPath para todos los módulos
     $mainPath = [Drawing.Drawing2D.GraphicsPath]::new()
     
-    for ($r = 0; $r -lt $m.Height; $r++) {
-        for ($c = 0; $c -lt $m.Width; $c++) {
+    [int]$mH = $m['Height']
+    [int]$mW = $m['Width']
+    for ($r = 0; $r -lt $mH; $r++) {
+        for ($c = 0; $c -lt $mW; $c++) {
             $x = ($c + $quiet) * $scale
             $y = ($r + $quiet) * $scale
             
@@ -3094,6 +3131,9 @@ function ExportPngRect {
     
     $qrBrush.Dispose()
     $g.Dispose()
+
+    if ($ReturnBitmap) { return $bmp }
+
     $bmp.Save($path, [Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
 }
@@ -4492,16 +4532,19 @@ function ExportSvgRect {
 function ShowConsoleRect {
     param($m)
     Write-Output ""
-    $border = [string]::new([char]0x2588, ($m.Width + 2) * 2)
+    [int]$h = $m.Height
+    [int]$w = $m.Width
+    $border = [string]::new([char]0x2588, ($w + 2) * 2)
     Write-Output "  $border"
-    [int[,]]$mMod = $m.Mod
-    for ([int]$r = 0; $r -lt $m.Height; $r++) {
+    [int[]]$mMod = $m.Mod
+    for ([int]$r = 0; $r -lt $h; $r++) {
         [System.Text.StringBuilder]$sbLine = New-Object System.Text.StringBuilder
         [void]$sbLine.Append("  ")
         [void]$sbLine.Append([char]0x2588)
         [void]$sbLine.Append([char]0x2588)
-        for ([int]$c = 0; $c -lt $m.Width; $c++) {
-            [void]$sbLine.Append($(if ([int]$mMod.GetValue($r, $c) -eq 1) { "  " } else { [string]::new([char]0x2588, 2) }))
+        [int]$rowOff = $r * $w
+        for ([int]$c = 0; $c -lt $w; $c++) {
+            [void]$sbLine.Append($(if ($mMod[$rowOff + $c] -eq 1) { "  " } else { [string]::new([char]0x2588, 2) }))
         }
         [void]$sbLine.Append([char]0x2588)
         [void]$sbLine.Append([char]0x2588)
@@ -4938,7 +4981,9 @@ function New-QRCode {
     [switch]$EInk,
     [switch]$Compress,
     [string]$SignKeyPath = "",
-    [string]$SignSeparator = "|"
+    [string]$SignSeparator = "|",
+    [switch]$DataUri,
+    [string]$EmbedPath
     )
     
     # Firmar digitalmente los datos si se proporciona una clave ECDSA
@@ -5049,7 +5094,7 @@ function New-QRCode {
     }
     
     $dataSegments = Get-Segment $Data
-    $segments = New-Object System.Collections.Generic.List[hashtable]
+    [System.Collections.Generic.List[hashtable]]$segments = New-Object System.Collections.Generic.List[hashtable]
     
     if ($useSA) {
         $paritySource = if ([string]::IsNullOrEmpty($StructuredAppendParityData)) { $Data } else { $StructuredAppendParityData }
@@ -5195,60 +5240,98 @@ function New-QRCode {
         $ecUse = if ($MicroVersion -eq 'M1') { 'L' } else { $ECLevel }
         $capFinal = GetMicroCap $MicroVersion $ecUse $mode
         if ($capFinal -lt 0) { throw "Modo/EC no soportado en $MicroVersion" }
-        
-        $mi = GetMicroModeInfo $MicroVersion $mode
-        $cb = GetMicroCountBits $MicroVersion $mode
-        $capBits = 0
-        if ($mode -eq 'N') {
-            $full = [Math]::Floor($capFinal / 3); $rem = $capFinal % 3
-            $bitsRem = 0; if($rem -eq 1){$bitsRem=4} elseif($rem -eq 2){$bitsRem=7}
-            $capBits = $mi.Len + $cb + $full * 10 + $bitsRem
-        } elseif ($mode -eq 'A') {
-            $full = [Math]::Floor($capFinal / 2); $rem = $capFinal % 2
-            $bitsRem = 0; if($rem -eq 1){$bitsRem=6}
-            $capBits = $mi.Len + $cb + $full * 11 + $bitsRem
-        } elseif ($mode -eq 'B') {
-            $capBits = $mi.Len + $cb + ($capFinal * 8)
-        } elseif ($mode -eq 'K') {
-            $capBits = $mi.Len + $cb + ($capFinal * 13)
+
+        # Longitudes fijas de ECC para Micro QR (ISO 18004)
+        $microEccTable = @{
+            'M2L' = 5; 'M2M' = 7
+            'M3L' = 11; 'M3M' = 15
+            'M4L' = 16; 'M4M' = 24; 'M4Q' = 28
         }
-        $dataCwMax = [Math]::Ceiling($capBits / 8)
-        $totalCw = GetMicroTotalCw $MicroVersion
-        $eccLen = $totalCw - $dataCwMax
-        if ($eccLen -lt 0) { throw "Capacidad Micro invÃ¡lida" }
-        
+        $eccLen = 0
+        if ($MicroVersion -ne 'M1') {
+            $eccKey = "$MicroVersion$ecUse"
+            if ($microEccTable.ContainsKey($eccKey)) {
+                $eccLen = $microEccTable[$eccKey]
+            } else {
+                throw "Configuración de ECC inválida para $MicroVersion"
+            }
+        }
+
+        $totalModules = GetMicroTotalModules $MicroVersion
         $bits = MicroEncode $Data $MicroVersion $ecUse $mode
         if ($bits -isnot [System.Collections.ArrayList]) {
             $tmp = New-Object System.Collections.ArrayList
             [void]$tmp.AddRange($bits)
             $bits = $tmp
         }
-        $capacityBits = $dataCwMax * 8
+        
+        $capacityBits = $totalModules
         if ($bits.Count -gt $capacityBits) { throw "Datos exceden capacidad Micro" }
-        $term = [Math]::Min(4, $capacityBits - $bits.Count)
-        for ($i = 0; $i -lt $term; $i++) { [void]$bits.Add(0) }
-        while ($bits.Count % 8 -ne 0) { [void]$bits.Add(0) }
-        $pads = @(236, 17); $pi = 0
-        while ($bits.Count -lt $capacityBits) {
-            $pb = $pads[$pi]; $pi = 1 - $pi
-            for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($pb -shr $b) -band 1)) }
+        
+        # Terminador (hasta 4 bits, pero no más que el espacio restante)
+        $termLen = [Math]::Min(4, $capacityBits - $bits.Count)
+        for ($i = 0; $i -lt $termLen; $i++) { [void]$bits.Add(0) }
+        
+        # Relleno hasta múltiplo de 8 (solo para M2, M3, M4)
+        if ($MicroVersion -ne 'M1') {
+            while ($bits.Count % 8 -ne 0 -and $bits.Count -lt $capacityBits) { [void]$bits.Add(0) }
+            
+            # Code words de relleno (Padding)
+            $pads = @(236, 17); $pi = 0
+            while ($bits.Count + 8 -le $capacityBits - ($eccLen * 8)) {
+                $pb = $pads[$pi]; $pi = 1 - $pi
+                for ($b = 7; $b -ge 0; $b--) { [void]$bits.Add([int](($pb -shr $b) -band 1)) }
+            }
         }
+        
+        # Relleno final con ceros hasta completar todos los módulos de datos
+        while ($bits.Count -lt ($capacityBits - ($eccLen * 8))) { [void]$bits.Add(0) }
+
         [System.Collections.Generic.List[int]]$dataCW = New-Object System.Collections.Generic.List[int]
-        for ($i = 0; $i -lt $bits.Count; $i += 8) {
+        for ($i = 0; $i + 7 -lt $bits.Count; $i += 8) {
             $byte = 0
             for ($j = 0; $j -lt 8; $j++) { $byte = ($byte -shl 1) -bor $bits[$i + $j] }
             [void]$dataCW.Add($byte)
         }
+        
         $ecCW = if ($eccLen -gt 0) { GetEC $dataCW.ToArray() $eccLen } else { @() }
-        $allCW = $dataCW.ToArray() + $ecCW
+        
+        # Combinar datos y ECC
+        # Para M1, usamos los bits directamente. Para otros, usamos CW + EC.
+        if ($MicroVersion -eq 'M1') {
+            $allBits = $bits
+        } else {
+            [System.Collections.Generic.List[int]]$allBits = New-Object System.Collections.Generic.List[int]
+            [void]$allBits.AddRange($bits) # Ya incluye el padding de datos
+            foreach ($cw in $ecCW) {
+                for ($b = 7; $b -ge 0; $b--) { [void]$allBits.Add([int](($cw -shr $b) -band 1)) }
+            }
+            # Relleno final si sobran módulos (p.ej. M2/M3 que no son múltiplos de 8)
+            while ($allBits.Count -lt $totalModules) { [void]$allBits.Add(0) }
+        }
+        
+        # Convertir bits a bytes para PlaceData
+        [System.Collections.Generic.List[int]]$finalCW = New-Object System.Collections.Generic.List[int]
+        for ($i = 0; $i -lt $allBits.Count; $i += 8) {
+            $byte = 0
+            for ($j = 0; $j -lt 8; $j++) {
+                if ($i + $j -lt $allBits.Count) {
+                    $byte = ($byte -shl 1) -bor $allBits[$i + $j]
+                } else {
+                    $byte = ($byte -shl 1) # Padding con 0
+                }
+            }
+            [void]$finalCW.Add($byte)
+        }
+        $allCW = $finalCW.ToArray()
         
         Write-Status "Version: $MicroVersion ($(GetMicroSize $MicroVersion)x$(GetMicroSize $MicroVersion))"
         Write-Status "EC: $ecUse"
         
-        $matrix = InitMicroM $MicroVersion
+        [hashtable]$matrix = InitMicroM $MicroVersion
         PlaceData $matrix $allCW
-        $mask = FindBestMaskMicro $matrix
-        $final = ApplyMask $matrix $mask
+        [int]$mask = FindBestMaskMicro $matrix
+        [hashtable]$final = ApplyMask $matrix $mask
         AddFormatMicro $final $ecUse $mask
         
         $sw.Stop()
@@ -5372,8 +5455,8 @@ function New-QRCode {
         $bits = $cwBits
         $idx = 0
         $up = $true
-        [int[,]]$mMod = $m['Mod']
-        [bool[,]]$mFunc = $m['Func']
+        [int[]]$mMod = $m['Mod']
+        [bool[]]$mFunc = $m['Func']
         for ($right = $w - 1; $right -ge 1; $right -= 2) {
             # In QR codes, column 6 is reserved for timing patterns. rMQR does not have this internal timing column.
             # However, the current logic for ExtractBitsRMQR also skips column 6.
@@ -5384,22 +5467,26 @@ function New-QRCode {
             
             if ($up) {
                 for ([int]$row = $h - 1; $row -ge 0; $row--) {
+                    [int]$rowOff = $row * $w
                     for ([int]$dc = 0; $dc -le 1; $dc++) {
                         [int]$col = $right - $dc
-                        if ($null -ne $mFunc -and -not [bool]$mFunc.GetValue($row, $col)) {
+                        [int]$off = $rowOff + $col
+                        if ($null -ne $mFunc -and -not $mFunc[$off]) {
                             $v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
-                            $mMod.SetValue($v, $row, $col)
+                            $mMod[$off] = $v
                             $idx++
                         }
                     }
                 }
             } else {
                 for ([int]$row = 0; $row -lt $h; $row++) {
+                    [int]$rowOff = $row * $w
                     for ([int]$dc = 0; $dc -le 1; $dc++) {
                         [int]$col = $right - $dc
-                        if ($null -ne $mFunc -and -not [bool]$mFunc.GetValue($row, $col)) {
+                        [int]$off = $rowOff + $col
+                        if ($null -ne $mFunc -and -not $mFunc[$off]) {
                             $v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
-                            $mMod.SetValue($v, $row, $col)
+                            $mMod[$off] = $v
                             $idx++
                         }
                     }
@@ -5408,9 +5495,11 @@ function New-QRCode {
             $up = -not $up
         }
         for ($r = 0; $r -lt $h; $r++) { 
+            [int]$rowOff = $r * $w
             for ($c = 0; $c -lt $w; $c++) { 
-                if ($null -ne $mFunc -and -not [bool]$mFunc.GetValue($r, $c)) { 
-                    if ( (($r + $c) % 2) -eq 0 ) { $mMod.SetValue(1 - [int]$mMod.GetValue($r, $c), $r, $c) } 
+                [int]$off = $rowOff + $c
+                if ($null -ne $mFunc -and -not $mFunc[$off]) { 
+                    if ( (($r + $c) % 2) -eq 0 ) { $mMod[$off] = 1 - $mMod[$off] } 
                 } 
             } 
         }
@@ -5437,16 +5526,17 @@ function New-QRCode {
         for ($i=0;$i -lt 18;$i++){ $fmtBR += ($fmt[$i] -bxor $script:RMQR_FMT_MASKS.BR[$i]) }
         
         # Validar TL Format Info
-        for ($i=0;$i -lt 6;$i++){ $mFunc.SetValue($true, $i, 7); $mMod.SetValue($fmtTL[$i], $i, 7) }
-        for ($i=0;$i -lt 6;$i++){ $mFunc.SetValue($true, $i, 8); $mMod.SetValue($fmtTL[$i+6], $i, 8) }
-        for ($i=0;$i -lt 6;$i++){ $mFunc.SetValue($true, $i, 9); $mMod.SetValue($fmtTL[$i+12], $i, 9) }
+        for ($i=0;$i -lt 6;$i++){ $mFunc[$i * $w + 7] = $true; $mMod[$i * $w + 7] = $fmtTL[$i] }
+        for ($i=0;$i -lt 6;$i++){ $mFunc[$i * $w + 8] = $true; $mMod[$i * $w + 8] = $fmtTL[$i+6] }
+        for ($i=0;$i -lt 6;$i++){ $mFunc[$i * $w + 9] = $true; $mMod[$i * $w + 9] = $fmtTL[$i+12] }
         
         # Validar BR Format Info
         for ($i=0;$i -lt 6;$i++){ 
             [int]$row = $h - 6 + $i
-            $mFunc.SetValue($true, $row, ($w-11)); $mMod.SetValue($fmtBR[$i], $row, ($w-11))
-            $mFunc.SetValue($true, $row, ($w-10)); $mMod.SetValue($fmtBR[$i+6], $row, ($w-10))
-            $mFunc.SetValue($true, $row, ($w-9)); $mMod.SetValue($fmtBR[$i+12], $row, ($w-9))
+            [int]$rowOff = $row * $w
+            $mFunc[$rowOff + $w - 11] = $true; $mMod[$rowOff + $w - 11] = $fmtBR[$i]
+            $mFunc[$rowOff + $w - 10] = $true; $mMod[$rowOff + $w - 10] = $fmtBR[$i+6]
+            $mFunc[$rowOff + $w - 9] = $true; $mMod[$rowOff + $w - 9] = $fmtBR[$i+12]
         }
         Write-Status "Version: R$h`x$w"
         Write-Status "EC: $ecUse"
@@ -5570,16 +5660,16 @@ function New-QRCode {
     $allCW = BuildCW $dataCW $Version $ECLevel
     
     Write-Status "Matriz..."
-    $matrix = InitM $Version $Model
+    [hashtable]$matrix = InitM $Version $Model
     
     Write-Status "Datos..."
     PlaceData $matrix $allCW
     
     Write-Status "Mascaras..."
-    $mask = FindBestMask $matrix
+    [int]$mask = FindBestMask $matrix
     Write-Status "Mascara: $mask"
     
-    $final = ApplyMask $matrix $mask
+    [hashtable]$final = ApplyMask $matrix $mask
     if ($Symbol -eq 'QR' -or ($Symbol -eq 'AUTO' -and $matrix.Size -ge 21)) {
         AddFormat $final $ECLevel $mask
     }
@@ -5639,14 +5729,21 @@ function New-QRCode {
 
     if ($DataUri) {
         # Generar PNG en memoria y convertir a Base64
-        $ms = New-Object System.IO.MemoryStream
-        $img = ExportPng $final "" $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -ReturnBitmap
-        $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-        $b64 = [Convert]::ToBase64String($ms.ToArray())
-        $dataUriStr = "data:image/png;base64,$b64"
-        Write-Output "`nData URI (Base64):"
-        Write-Output $dataUriStr
-        $ms.Dispose(); $img.Dispose()
+        [System.IO.MemoryStream]$ms = New-Object System.IO.MemoryStream
+        [System.Drawing.Bitmap]$img = if ($final.ContainsKey('Height')) {
+            ExportPngRect $final "" $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -ReturnBitmap
+        } else {
+            ExportPng $final "" $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -ReturnBitmap
+        }
+        if ($null -ne $img) {
+            $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+            [string]$b64 = [Convert]::ToBase64String($ms.ToArray())
+            [string]$dataUriStr = "data:image/png;base64,$b64"
+            Write-Host "`nData URI (Base64):" -ForegroundColor Cyan
+            Write-Output $dataUriStr
+            $img.Dispose()
+        }
+        $ms.Dispose()
     }
     
     return $final
@@ -6458,7 +6555,7 @@ if ($MyInvocation.InvocationName -ne '.' -and $MyInvocation.InvocationName -ne '
         Convert-SvgToPdf -SvgPath $SvgPath -PdfPath $finalPath
     } elseif (-not [string]::IsNullOrEmpty($Data)) {
         # Modo CLI Directo (Un solo QR)
-        New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole -Decode:$Decode -QualityReport:$QualityReport -LogoPath $LogoPath -LogoScale $LogoScale -BottomText $BottomText -ForegroundColor $ForegroundColor -ForegroundColor2 $ForegroundColor2 -BackgroundColor $BackgroundColor -Rounded $Rounded -ModuleShape $ModuleShape -GradientType $GradientType -FrameText $FrameText -FrameColor $FrameColor -FontFamily $FontFamily -GoogleFont $GoogleFont
+        New-QRCode -Data $Data -OutputPath $OutputPath -ECLevel $ECLevel -Version $Version -ModuleSize $ModuleSize -EciValue $EciValue -Symbol $Symbol -Model $Model -MicroVersion $MicroVersion -Fnc1First:$Fnc1First -Fnc1Second:$Fnc1Second -Fnc1ApplicationIndicator $Fnc1ApplicationIndicator -StructuredAppendIndex $StructuredAppendIndex -StructuredAppendTotal $StructuredAppendTotal -StructuredAppendParity $StructuredAppendParity -StructuredAppendParityData $StructuredAppendParityData -ShowConsole:$ShowConsole -Decode:$Decode -QualityReport:$QualityReport -LogoPath $LogoPath -LogoScale $LogoScale -BottomText $BottomText -ForegroundColor $ForegroundColor -ForegroundColor2 $ForegroundColor2 -BackgroundColor $BackgroundColor -Rounded $Rounded -ModuleShape $ModuleShape -GradientType $GradientType -FrameText $FrameText -FrameColor $FrameColor -FontFamily $FontFamily -GoogleFont $GoogleFont -DataUri:$DataUri -EmbedPath $EmbedPath
     } elseif (-not [string]::IsNullOrEmpty($ImageDir)) {
         # Modo Conversor de Imágenes a PDF (CLI)
         $finalPath = if ($OutputPath) { $OutputPath } else { "imagenes_convertidas.pdf" }

@@ -51,6 +51,8 @@
 - **Procesamiento por Lotes**: Motor robusto para procesar archivos **TSV** con mapeo dinámico de columnas y personalización por fila.
 - **Incrustación de Logos**: Soporte para logos PNG/JPG/SVG con ajuste automático de nivel de error a **H (High)**.
 - **Layouts de Impresión**: Generación de catálogos con rejillas automáticas (Grid 4x4, 4x5, 6x6).
+- **Robustez Industrial**: Implementación de `Set-StrictMode -Version 2.0` y tipado estricto de .NET para máxima estabilidad.
+- **Suite de Pruebas**: Validación automatizada completa mediante **Pester** para asegurar la integridad del código.
 
 ---
 
@@ -222,10 +224,10 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
   - **Pre-renderizado**: ✅ Sistema de matrices base con patrones fijos pre-calculados por versión.
 - **🏗️ Arquitectura**:
   - **Modularización (PSM1)**: Conversión a módulo formal para facilitar la distribución.
-  - **Generación Directa de Lenguajes de Impresión**: Implementación de conversores a **ZPL (Zebra)** y **ESC/POS**.
-  - **Robustez**: Implementación de `Set-StrictMode` y tipado estricto de .NET.
-  - **Pruebas Unitarias**: Suite de validación automatizada con **Pester**.
-  - **CI/CD Integration**: Plantillas para GitHub Actions y Azure DevOps.
+- **Generación Directa de Lenguajes de Impresión**: Implementación de conversores a **ZPL (Zebra)** y **ESC/POS**.
+- **Robustez**: ✅ Implementado `Set-StrictMode` y tipado estricto de .NET.
+- **Pruebas Unitarias**: ✅ Suite de validación automatizada con **Pester**.
+- **CI/CD Integration**: Plantillas para GitHub Actions y Azure DevOps.
 - **🛡️ Seguridad y Datos**:
   - **Firmas Digitales (ECDSA)**: ✅ Implementado utilizando .NET nativo (`System.Security.Cryptography`).
   - **Compresión de Datos**: ✅ Implementado algoritmos de compresión por diccionario para QR V40.
