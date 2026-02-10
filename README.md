@@ -43,6 +43,7 @@
 
 - **Segmentación Inteligente**: Alterna automáticamente entre modos Numérico, Alfanumérico, Byte (UTF-8) y Kanji (Shift-JIS).
 - **Corrección de Errores (ECC)**: Implementación completa de Reed-Solomon (GF 256) niveles L, M, Q, H.
+- **Portabilidad Absoluta**: El script es 100% independiente; los identificadores GS1 y la lógica de validación están integrados sin necesidad de archivos JSON o librerías externas.
 - **Exportación Multi-formato**: Generación simultánea de **PDF, SVG y PNG** en un solo proceso.
 - **Personalización Estética**: Soporte para colores sólidos, degradados (lineales/radiales), módulos redondeados y marcos decorativos ("ESCANEAME").
 - **Procesamiento por Lotes**: Motor robusto para procesar archivos **TSV** con mapeo dinámico de columnas y personalización por fila.
@@ -215,11 +216,11 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
   - **Firmas Digitales (ECDSA)**: ✅ Implementado utilizando .NET nativo (`System.Security.Cryptography`).
   - **Compresión de Datos**: ✅ Implementado algoritmos de compresión por diccionario para QR V40.
   - **Nuevos Formatos**: ✅ Soporte para Geo-localización, vEvent y Cripto-direcciones.
-  - **Validación Semántica**: Verificación estricta de formatos (IBAN, vCard, EPC).
-  - **Auto-split**: Fragmentación automática de datos mediante Structured Append.
-  - **Externalización GS1**: Gestión de identificadores de aplicación mediante archivo JSON externo.
-  - **PDF/A-3**: Cumplimiento del estándar para permitir la incrustación de archivos de datos fuente.
-  - **ECI Extendido**: Soporte para tablas de caracteres adicionales (Cirílico, Árabe, etc.).
+  - **Validación Semántica**: ✅ Verificación estricta de formatos (IBAN, vCard, EPC).
+  - **Auto-split**: ✅ Fragmentación automática de datos mediante Structured Append.
+  - **Portabilidad GS1**: ✅ Identificadores de aplicación integrados para independencia total del script.
+  - **PDF/A-3**: ✅ Cumplimiento del estándar para permitir la incrustación de archivos de datos fuente.
+  - **ECI Extendido**: ✅ Soporte para tablas de caracteres adicionales (Cirílico, Árabe, etc.).
 - **🎨 Estética y UX**:
   - **Redondeado Avanzado y Formas**: ✅ Implementado uso de `GraphicsPath` para módulos geométricos variados.
   - **Optimización E-Ink**: ✅ Implementado perfiles de alto contraste y desactivación de anti-aliasing.
