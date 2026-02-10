@@ -195,12 +195,12 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 - **⚡ Rendimiento**:
   - **Procesamiento en Paralelo**: ✅ Implementado mediante `RunspacePool` para máxima eficiencia en lotes.
   - **Caché de Símbolos**: ✅ Implementado mediante reutilización de matrices de patrones fijos y máscaras pre-calculadas.
-  - **Optimización de Matriz**: Migración de Hashtables a arrays 1D para reducir memoria y ganar velocidad.
+  - **Optimización de Matriz**: ✅ Migración de Hashtables a arrays 1D para reducir memoria y ganar velocidad.
   - **Optimización SVG**: ✅ Agrupación de módulos en un solo `<path>` para reducir el tamaño del archivo.
-  - **Compresión PDF**: Implementación de filtro `/FlateDecode` en streams de contenido nativos.
-  - **Máscaras en Paralelo**: Evaluación concurrente de las 8 máscaras estándar para ganar velocidad en V20+.
-  - **Optimización GetPenalty**: Eliminación de conversiones intermedias de matriz para reducir ciclos de CPU.
-  - **Pre-renderizado**: Sistema de matrices base con patrones fijos pre-calculados por versión.
+  - **Compresión PDF**: ✅ Implementación de filtro `/FlateDecode` en streams de contenido nativos.
+  - **Máscaras en Paralelo**: ✅ Evaluación concurrente de las 8 máscaras estándar para ganar velocidad en V20+.
+  - **Optimización GetPenalty**: ✅ Eliminación de conversiones intermedias de matriz para reducir ciclos de CPU.
+  - **Pre-renderizado**: ✅ Sistema de matrices base con patrones fijos pre-calculados por versión.
 - **🏗️ Arquitectura**:
   - **Modularización (PSM1)**: Conversión a módulo formal para facilitar la distribución.
   - **Generación Directa de Lenguajes de Impresión**: Implementación de conversores a **ZPL (Zebra)** y **ESC/POS**.

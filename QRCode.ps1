@@ -105,16 +105,16 @@ $script:MATRIX_CACHE = [hashtable]::Synchronized(@{})
 function NewM([int]$size) {
     return @{ 
         Size = $size; 
-        Mod  = [int[,]]::new($size, $size); 
-        Func = [bool[,]]::new($size, $size) 
+        Mod  = [int[]]::new($size * $size); 
+        Func = [bool[]]::new($size * $size) 
     }
 }
 function NewMRect([int]$h, [int]$w) {
     return @{ 
         Height = $h; 
         Width  = $w; 
-        Mod    = [int[,]]::new($h, $w); 
-        Func   = [bool[,]]::new($h, $w) 
+        Mod    = [int[]]::new($h * $w); 
+        Func   = [bool[]]::new($h * $w) 
     }
 }
 function CopyM([hashtable]$m) {
@@ -125,56 +125,67 @@ function CopyM([hashtable]$m) {
     [Array]::Copy($m['Func'], $n['Func'], $m['Func'].Length)
     return $n
 }
-function SetM([hashtable]$m, [int]$r, [int]$c, [int]$v) { [int[,]]$mMod = $m['Mod']; $mMod.SetValue($v, $r, $c) }
-function GetM([hashtable]$m, [int]$r, [int]$c) { [int[,]]$mMod = $m['Mod']; return [int]$mMod.GetValue($r, $c) }
+function SetM([hashtable]$m, [int]$r, [int]$c, [int]$v) { 
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
+    [int[]]$mMod = $m['Mod']; $mMod[$r * $w + $c] = $v 
+}
+function GetM([hashtable]$m, [int]$r, [int]$c) { 
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
+    [int[]]$mMod = $m['Mod']; return $mMod[$r * $w + $c] 
+}
 function SetF([hashtable]$m, [int]$r, [int]$c, [bool]$v) {
     [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
     [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
     if ($r -ge 0 -and $r -lt $h -and $c -ge 0 -and $c -lt $w) {
-        [int[,]]$mMod = $m['Mod']; [bool[,]]$mFunc = $m['Func']
-        $mMod.SetValue([int]$v, $r, $c); $mFunc.SetValue($true, $r, $c)
+        [int[]]$mMod = $m['Mod']; [bool[]]$mFunc = $m['Func']
+        [int]$off = $r * $w + $c
+        $mMod[$off] = [int]$v; $mFunc[$off] = $true
     }
 }
 function IsF([hashtable]$m, [int]$r, [int]$c) { 
-    [bool[,]]$mFunc = $m['Func']
-    return [bool]$mFunc.GetValue($r, $c)
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
+    [bool[]]$mFunc = $m['Func']
+    return $mFunc[$r * $w + $c]
 }
 
 function AddFinder([hashtable]$m, [int]$r, [int]$c) {
     [int]$h = if ($m.Height) { $m.Height } else { $m.Size }
     [int]$w = if ($m.Width) { $m.Width } else { $m.Size }
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
 
     for ([int]$dy = -1; $dy -le 7; $dy++) {
         for ([int]$dx = -1; $dx -le 7; $dx++) {
             [int]$rr = $r + $dy; [int]$cc = $c + $dx
             [bool]$in = $dy -ge 0 -and $dy -le 6 -and $dx -ge 0 -and $dx -le 6
             if (-not $in) {
-                if ($rr -ge 0 -and $rr -lt $h -and $cc -ge 0 -and $cc -lt $w) { $mFunc.SetValue($true, $rr, $cc) }
+                if ($rr -ge 0 -and $rr -lt $h -and $cc -ge 0 -and $cc -lt $w) { $mFunc[$rr * $w + $cc] = $true }
                 continue
             }
             [bool]$on = $dy -eq 0 -or $dy -eq 6 -or $dx -eq 0 -or $dx -eq 6
             [bool]$cent = $dy -ge 2 -and $dy -le 4 -and $dx -ge 2 -and $dx -le 4
             [bool]$v = ($on -or $cent)
             if ($rr -ge 0 -and $rr -lt $h -and $cc -ge 0 -and $cc -lt $w) {
-                $mMod.SetValue([int]$v, $rr, $cc); $mFunc.SetValue($true, $rr, $cc)
+                [int]$off = $rr * $w + $cc
+                $mMod[$off] = [int]$v; $mFunc[$off] = $true
             }
         }
     }
 }
 
 function AddAlign([hashtable]$m, [int]$r, [int]$c) {
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int]$w = if ($m.Width) { $m.Width } else { $m.Size }
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
     for ([int]$dy = -2; $dy -le 2; $dy++) {
         for ([int]$dx = -2; $dx -le 2; $dx++) {
             [int]$rr = $r + $dy; [int]$cc = $c + $dx
-            if ([bool]$mFunc.GetValue($rr, $cc)) { continue }
+            [int]$off = $rr * $w + $cc
+            if ($mFunc[$off]) { continue }
             [bool]$on = [Math]::Abs($dy) -eq 2 -or [Math]::Abs($dx) -eq 2
             [bool]$cent = $dy -eq 0 -and $dx -eq 0
             [bool]$v = ($on -or $cent)
-            $mMod.SetValue([int]$v, $rr, $cc); $mFunc.SetValue($true, $rr, $cc)
+            $mMod[$off] = [int]$v; $mFunc[$off] = $true
         }
     }
 }
@@ -222,7 +233,7 @@ function Invoke-PolyEvalGF([int[]]$p, [int]$x) {
 
 function ReadRMQRFormatInfo([hashtable]$m) {
     if ($null -eq $m) { Write-Error "ReadRMQRFormatInfo: m is null"; return $null }
-    [int[,]]$mMod = $m['Mod']
+    [int[]]$mMod = $m['Mod']
     [int]$h = if ($m.ContainsKey('Height')) { $m['Height'] } else { $m['Size'] }
     [int]$w = if ($m.ContainsKey('Width')) { $m['Width'] } else { $m['Size'] }
     if ($null -eq $mMod) { Write-Error "ReadRMQRFormatInfo: m['Mod'] is null"; return $null }
@@ -230,9 +241,9 @@ function ReadRMQRFormatInfo([hashtable]$m) {
     # Intentar leer TL (Top-Left)
     [int[]]$tlBits = New-Object int[] 18
     [int]$ptr = 0
-    for([int]$i=0; $i -lt 6; $i++){ $tlBits[$ptr++] = [int]$mMod.GetValue($i,7) }
-    for([int]$i=0; $i -lt 6; $i++){ $tlBits[$ptr++] = [int]$mMod.GetValue($i,8) }
-    for([int]$i=0; $i -lt 6; $i++){ $tlBits[$ptr++] = [int]$mMod.GetValue($i,9) }
+    for([int]$i=0; $i -lt 6; $i++){ $tlBits[$ptr++] = $mMod[$i * $w + 7] }
+    for([int]$i=0; $i -lt 6; $i++){ $tlBits[$ptr++] = $mMod[$i * $w + 8] }
+    for([int]$i=0; $i -lt 6; $i++){ $tlBits[$ptr++] = $mMod[$i * $w + 9] }
     
     # Desenmascarar TL
     [int[]]$tlMask = $script:RMQR_FMT_MASKS['TL']
@@ -241,9 +252,9 @@ function ReadRMQRFormatInfo([hashtable]$m) {
     # Intentar leer BR (Bottom-Right)
     [int[]]$brBits = New-Object int[] 18
     $ptr = 0
-    for([int]$i=0; $i -lt 6; $i++){ $brBits[$ptr++] = [int]$mMod.GetValue($h - 6 + $i, $w - 11) }
-    for([int]$i=0; $i -lt 6; $i++){ $brBits[$ptr++] = [int]$mMod.GetValue($h - 6 + $i, $w - 10) }
-    for([int]$i=0; $i -lt 6; $i++){ $brBits[$ptr++] = [int]$mMod.GetValue($h - 6 + $i, $w - 9) }
+    for([int]$i=0; $i -lt 6; $i++){ $brBits[$ptr++] = $mMod[($h - 6 + $i) * $w + ($w - 11)] }
+    for([int]$i=0; $i -lt 6; $i++){ $brBits[$ptr++] = $mMod[($h - 6 + $i) * $w + ($w - 10)] }
+    for([int]$i=0; $i -lt 6; $i++){ $brBits[$ptr++] = $mMod[($h - 6 + $i) * $w + ($w - 9)] }
 
     # Desenmascarar BR
     [int[]]$brMask = $script:RMQR_FMT_MASKS['BR']
@@ -273,20 +284,22 @@ function UnmaskRMQR([hashtable]$m) {
     [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
     [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
     [hashtable]$r = if ($m['Height']) { NewMRect $h $w } else { NewM $h }
-    [int[,]]$mMod = $m['Mod']
-    [bool[,]]$mFunc = $m['Func']
+    [int[]]$mMod = $m['Mod']
+    [bool[]]$mFunc = $m['Func']
     if ($null -eq $mMod -or $null -eq $mFunc) { Write-Error "UnmaskRMQR: matrix data is null"; return $null }
-    [int[,]]$rMod = $r['Mod']
-    [bool[,]]$rFunc = $r['Func']
+    [int[]]$rMod = $r['Mod']
+    [bool[]]$rFunc = $r['Func']
 
     for ([int]$row = 0; $row -lt $h; $row++) {
+        [int]$rowOff = $row * $w
         for ([int]$col = 0; $col -lt $w; $col++) {
-            $rFunc.SetValue([bool]$mFunc.GetValue($row,$col), $row, $col)
-            [int]$v = [int]$mMod.GetValue($row,$col)
-            if (-not [bool]$mFunc.GetValue($row,$col)) {
+            [int]$off = $rowOff + $col
+            $rFunc[$off] = $mFunc[$off]
+            [int]$v = $mMod[$off]
+            if (-not $mFunc[$off]) {
                 if ((($row + $col) % 2) -eq 0) { $v = 1 - $v }
             }
-            $rMod.SetValue($v, $row, $col)
+            $rMod[$off] = $v
         }
     }
     return $r
@@ -298,29 +311,33 @@ function ExtractBitsRMQR([hashtable]$m) {
     [bool]$up = $true
     [int]$h = if ($m.ContainsKey('Height')) { $m['Height'] } else { $m['Size'] }
     [int]$w = if ($m.ContainsKey('Width')) { $m['Width'] } else { $m['Size'] }
-    [int[,]]$mMod = $m['Mod']
-    [bool[,]]$mFunc = $m['Func']
+    [int[]]$mMod = $m['Mod']
+    [bool[]]$mFunc = $m['Func']
     if ($null -eq $mMod -or $null -eq $mFunc) { Write-Error "ExtractBitsRMQR: matrix data is null"; return $null }
 
     for ([int]$right = $w - 1; $right -ge 1; $right -= 2) {
         if ($up) {
             for ([int]$row = $h - 1; $row -ge 0; $row--) {
+                [int]$rowOff = $row * $w
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
                     if ($col -ge 0) {
-                        if (-not [bool]$mFunc.GetValue($row, $col)) {
-                            [void]$bits.Add([int]$mMod.GetValue($row, $col))
+                        [int]$off = $rowOff + $col
+                        if (-not $mFunc[$off]) {
+                            [void]$bits.Add($mMod[$off])
                         }
                     }
                 }
             }
         } else {
             for ([int]$row = 0; $row -lt $h; $row++) {
+                [int]$rowOff = $row * $w
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
                     if ($col -ge 0) {
-                        if (-not [bool]$mFunc.GetValue($row, $col)) {
-                            [void]$bits.Add([int]$mMod.GetValue($row, $col))
+                        [int]$off = $rowOff + $col
+                        if (-not $mFunc[$off]) {
+                            [void]$bits.Add($mMod[$off])
                         }
                     }
                 }
@@ -1215,9 +1232,10 @@ function AddFormatMicro($m, $ec, $mask) {
 
 function FindBestMaskMicro($m) {
     $best = 0; $min = [int]::MaxValue
+    [int]$size = [int]$m.Size
     for ($p = 0; $p -lt 4; $p++) {
-        $masked = ApplyMask $m $p
-        $pen = GetPenalty $masked
+        $maskedData = ApplyMask $m $p
+        $pen = GetPenalty $maskedData $size
         if ($pen -lt $min) { $min = $pen; $best = $p }
     }
     return $best
@@ -1848,16 +1866,18 @@ function AddVersionInfo([hashtable]$m, [int]$ver) {
     if ($ver -lt 7) { return }
     [string]$bits = $script:VER_INFO[$ver]
     [int]$size = $m.Size
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
     
     for ([int]$i = 0; $i -lt 18; $i++) {
         [int]$bit = [int]($bits[17 - $i].ToString())
         [int]$r = 5 - ($i % 6)
         [int]$c = $size - 11 + [Math]::Floor($i / 6)
         
-        $mMod.SetValue($bit, $r, $c); $mFunc.SetValue($true, $r, $c)
-        $mMod.SetValue($bit, $c, $r); $mFunc.SetValue($true, $c, $r)
+        [int]$off1 = $r * $size + $c
+        [int]$off2 = $c * $size + $r
+        $mMod[$off1] = $bit; $mFunc[$off1] = $true
+        $mMod[$off2] = $bit; $mFunc[$off2] = $true
     }
 }
 
@@ -1869,8 +1889,8 @@ function InitM([int]$ver, [string]$model) {
 
     [int]$size = GetSize $ver
     [hashtable]$m = NewM $size
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
     
     AddFinder $m 0 0
     AddFinder $m 0 ($size - 7)
@@ -1878,8 +1898,10 @@ function InitM([int]$ver, [string]$model) {
     
     for ([int]$i = 8; $i -lt $size - 8; $i++) {
         [bool]$v = ($i % 2) -eq 0
-        if (-not [bool]$mFunc.GetValue(6, $i)) { $mMod.SetValue([int]$v, 6, $i); $mFunc.SetValue($true, 6, $i) }
-        if (-not [bool]$mFunc.GetValue($i, 6)) { $mMod.SetValue([int]$v, $i, 6); $mFunc.SetValue($true, $i, 6) }
+        [int]$offH = 6 * $size + $i
+        [int]$offV = $i * $size + 6
+        if (-not $mFunc[$offH]) { $mMod[$offH] = [int]$v; $mFunc[$offH] = $true }
+        if (-not $mFunc[$offV]) { $mMod[$offV] = [int]$v; $mFunc[$offV] = $true }
     }
     
     if ($model -ne 'M1' -and $ver -ge 2 -and $script:ALIGN[$ver]) {
@@ -1894,17 +1916,22 @@ function InitM([int]$ver, [string]$model) {
     
     # Dark module
     [int]$dmR = 4 * $ver + 9
-    $mMod.SetValue(1, $dmR, 8); $mFunc.SetValue($true, $dmR, 8)
+    [int]$dmOff = $dmR * $size + 8
+    $mMod[$dmOff] = 1; $mFunc[$dmOff] = $true
     
     # Reserve format info areas
     for ([int]$i = 0; $i -lt 9; $i++) {
-        if (-not [bool]$mFunc.GetValue(8, $i)) { $mFunc.SetValue($true, 8, $i) }
-        if (-not [bool]$mFunc.GetValue($i, 8)) { $mFunc.SetValue($true, $i, 8) }
+        [int]$offH = 8 * $size + $i
+        [int]$offV = $i * $size + 8
+        if (-not $mFunc[$offH]) { $mFunc[$offH] = $true }
+        if (-not $mFunc[$offV]) { $mFunc[$offV] = $true }
     }
     for ([int]$i = 0; $i -lt 8; $i++) {
         [int]$idx = $size - 1 - $i
-        if (-not [bool]$mFunc.GetValue(8, $idx)) { $mFunc.SetValue($true, 8, $idx) }
-        if (-not [bool]$mFunc.GetValue($idx, 8)) { $mFunc.SetValue($true, $idx, 8) }
+        [int]$offH = 8 * $size + $idx
+        [int]$offV = $idx * $size + 8
+        if (-not $mFunc[$offH]) { $mFunc[$offH] = $true }
+        if (-not $mFunc[$offV]) { $mFunc[$offV] = $true }
     }
     
     AddVersionInfo $m $ver
@@ -1923,8 +1950,8 @@ function PlaceData([hashtable]$m, [int[]]$cw) {
     [int]$idx = 0
     [bool]$up = $true
     [int]$size = [int]$m.Size
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
     
     for ([int]$right = $size - 1; $right -ge 1; $right -= 2) {
         if ($right -eq 6) { $right = 5 }
@@ -1933,9 +1960,10 @@ function PlaceData([hashtable]$m, [int[]]$cw) {
             for ([int]$row = $size - 1; $row -ge 0; $row--) {
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not [bool]$mFunc.GetValue($row, $col)) {
+                    [int]$off = $row * $size + $col
+                    if (-not $mFunc[$off]) {
                         [int]$v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
-                        $mMod.SetValue($v, $row, $col)
+                        $mMod[$off] = $v
                         $idx++
                     }
                 }
@@ -1944,9 +1972,10 @@ function PlaceData([hashtable]$m, [int[]]$cw) {
             for ([int]$row = 0; $row -lt $size; $row++) {
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not [bool]$mFunc.GetValue($row, $col)) {
+                    [int]$off = $row * $size + $col
+                    if (-not $mFunc[$off]) {
                         [int]$v = if ($idx -lt $bits.Count -and $bits[$idx] -eq 1) { 1 } else { 0 }
-                        $mMod.SetValue($v, $row, $col)
+                        $mMod[$off] = $v
                         $idx++
                     }
                 }
@@ -1962,6 +1991,7 @@ function ApplyMask([hashtable]$m, [int]$p) {
     if (-not $script:MATRIX_CACHE.ContainsKey($cacheKey)) {
         [int[]]$maskArr = New-Object "int[]" ($size * $size)
         for ([int]$row = 0; $row -lt $size; $row++) {
+            [int]$rowOff = $row * $size
             for ([int]$col = 0; $col -lt $size; $col++) {
                 [bool]$v = switch ($p) {
                     0 { (($row + $col) % 2) -eq 0 }
@@ -1973,50 +2003,38 @@ function ApplyMask([hashtable]$m, [int]$p) {
                     6 { (((($row * $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                     7 { (((($row + $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                 }
-                $maskArr[$row * $size + $col] = if ($v) { 1 } else { 0 }
+                $maskArr[$rowOff + $col] = if ($v) { 1 } else { 0 }
             }
         }
         $script:MATRIX_CACHE[$cacheKey] = $maskArr
     }
     [int[]]$maskArr = [int[]]$script:MATRIX_CACHE[$cacheKey]
 
-    [hashtable]$r = NewM $size
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
-    [int[,]]$rMod = $r.Mod
-    [bool[,]]$rFunc = $r.Func
-
-    for ([int]$row = 0; $row -lt $size; $row++) {
-        for ([int]$col = 0; $col -lt $size; $col++) {
-            $rFunc.SetValue([bool]$mFunc.GetValue($row, $col), $row, $col)
-            [int]$v = [int]$mMod.GetValue($row, $col)
-            if (-not [bool]$mFunc.GetValue($row, $col)) {
-                if ($maskArr[$row * $size + $col] -eq 1) { $v = 1 - $v }
-            }
-            $rMod.SetValue($v, $row, $col)
+    # Use 1D arrays directly from the matrix
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
+    [int]$len = $mMod.Length
+    [int[]]$data = New-Object "int[]" $len
+    
+    for ([int]$i = 0; $i -lt $len; $i++) {
+        [int]$v = $mMod[$i]
+        if (-not $mFunc[$i]) {
+            if ($maskArr[$i] -eq 1) { $v = 1 - $v }
         }
+        $data[$i] = $v
     }
-    return $r
+    return $data
 }
 
-function GetPenalty([hashtable]$m) {
+function GetPenalty([int[]]$data, [int]$size) {
     [int]$pen = 0
-    [int]$size = [int]$m.Size
     
-    # Pre-fetch all modules into a 1D array for faster access
-    [int[]]$data = New-Object "int[]" ($size * $size)
-    [int[,]]$mMod = $m.Mod
-    for ([int]$r = 0; $r -lt $size; $r++) {
-        for ([int]$c = 0; $c -lt $size; $c++) {
-            $data[$r * $size + $c] = [int]$mMod.GetValue($r, $c)
-        }
-    }
-
     # Rule 1: Consecutive modules of the same color
     for ([int]$r = 0; $r -lt $size; $r++) {
+        [int]$rowOff = $r * $size
         [int]$run = 1
         for ([int]$c = 1; $c -lt $size; $c++) {
-            if ($data[$r * $size + $c] -eq $data[$r * $size + $c - 1]) { $run++ }
+            if ($data[$rowOff + $c] -eq $data[$rowOff + $c - 1]) { $run++ }
             else { if ($run -ge 5) { $pen += 3 + $run - 5 }; $run = 1 }
         }
         if ($run -ge 5) { $pen += 3 + $run - 5 }
@@ -2032,9 +2050,11 @@ function GetPenalty([hashtable]$m) {
     
     # Rule 2: 2x2 blocks of the same color
     for ([int]$r = 0; $r -lt $size - 1; $r++) {
+        [int]$rowOff = $r * $size
+        [int]$nextRowOff = ($r + 1) * $size
         for ([int]$c = 0; $c -lt $size - 1; $c++) {
-            [int]$v = $data[$r * $size + $c]
-            if ($v -eq $data[$r * $size + $c + 1] -and $v -eq $data[($r + 1) * $size + $c] -and $v -eq $data[($r + 1) * $size + $c + 1]) {
+            [int]$v = $data[$rowOff + $c]
+            if ($v -eq $data[$rowOff + $c + 1] -and $v -eq $data[$nextRowOff + $c] -and $v -eq $data[$nextRowOff + $c + 1]) {
                 $pen += 3
             }
         }
@@ -2042,18 +2062,20 @@ function GetPenalty([hashtable]$m) {
     
     # Rule 3: Finder-like patterns (1:1:3:1:1 ratio)
     for ([int]$r = 0; $r -lt $size; $r++) {
+        [int]$rowOff = $r * $size
         for ([int]$c = 0; $c -lt $size - 10; $c++) {
-            if ($data[$r * $size + $c + 4] -eq 1 -and $data[$r * $size + $c + 5] -eq 0 -and $data[$r * $size + $c + 6] -eq 1 -and 
-                $data[$r * $size + $c + 7] -eq 1 -and $data[$r * $size + $c + 8] -eq 1 -and $data[$r * $size + $c + 9] -eq 0 -and 
-                $data[$r * $size + $c + 10] -eq 1) {
-                if ($data[$r * $size + $c] -eq 0 -and $data[$r * $size + $c + 1] -eq 0 -and $data[$r * $size + $c + 2] -eq 0 -and $data[$r * $size + $c + 3] -eq 0) {
+            [int]$off = $rowOff + $c
+            if ($data[$off + 4] -eq 1 -and $data[$off + 5] -eq 0 -and $data[$off + 6] -eq 1 -and 
+                $data[$off + 7] -eq 1 -and $data[$off + 8] -eq 1 -and $data[$off + 9] -eq 0 -and 
+                $data[$off + 10] -eq 1) {
+                if ($data[$off] -eq 0 -and $data[$off + 1] -eq 0 -and $data[$off + 2] -eq 0 -and $data[$off + 3] -eq 0) {
                     $pen += 40
                 }
             }
-            if ($data[$r * $size + $c] -eq 1 -and $data[$r * $size + $c + 1] -eq 0 -and $data[$r * $size + $c + 2] -eq 1 -and 
-                $data[$r * $size + $c + 3] -eq 1 -and $data[$r * $size + $c + 4] -eq 1 -and $data[$r * $size + $c + 5] -eq 0 -and 
-                $data[$r * $size + $c + 6] -eq 1) {
-                if ($data[$r * $size + $c + 7] -eq 0 -and $data[$r * $size + $c + 8] -eq 0 -and $data[$r * $size + $c + 9] -eq 0 -and $data[$r * $size + $c + 10] -eq 0) {
+            if ($data[$off] -eq 1 -and $data[$off + 1] -eq 0 -and $data[$off + 2] -eq 1 -and 
+                $data[$off + 3] -eq 1 -and $data[$off + 4] -eq 1 -and $data[$off + 5] -eq 0 -and 
+                $data[$off + 6] -eq 1) {
+                if ($data[$off + 7] -eq 0 -and $data[$off + 8] -eq 0 -and $data[$off + 9] -eq 0 -and $data[$off + 10] -eq 0) {
                     $pen += 40
                 }
             }
@@ -2061,17 +2083,18 @@ function GetPenalty([hashtable]$m) {
     }
     for ([int]$c = 0; $c -lt $size; $c++) {
         for ([int]$r = 0; $r -lt $size - 10; $r++) {
-            if ($data[($r + 4) * $size + $c] -eq 1 -and $data[($r + 5) * $size + $c] -eq 0 -and $data[($r + 6) * $size + $c] -eq 1 -and 
-                $data[($r + 7) * $size + $c] -eq 1 -and $data[($r + 8) * $size + $c] -eq 1 -and $data[($r + 9) * $size + $c] -eq 0 -and 
-                $data[($r + 10) * $size + $c] -eq 1) {
-                if ($data[$r * $size + $c] -eq 0 -and $data[($r + 1) * $size + $c] -eq 0 -and $data[($r + 2) * $size + $c] -eq 0 -and $data[($r + 3) * $size + $c] -eq 0) {
+            [int]$off = $r * $size + $c
+            if ($data[$off + (4 * $size)] -eq 1 -and $data[$off + (5 * $size)] -eq 0 -and $data[$off + (6 * $size)] -eq 1 -and 
+                $data[$off + (7 * $size)] -eq 1 -and $data[$off + (8 * $size)] -eq 1 -and $data[$off + (9 * $size)] -eq 0 -and 
+                $data[$off + (10 * $size)] -eq 1) {
+                if ($data[$off] -eq 0 -and $data[$off + $size] -eq 0 -and $data[$off + (2 * $size)] -eq 0 -and $data[$off + (3 * $size)] -eq 0) {
                     $pen += 40
                 }
             }
-            if ($data[$r * $size + $c] -eq 1 -and $data[($r + 1) * $size + $c] -eq 0 -and $data[($r + 2) * $size + $c] -eq 1 -and 
-                $data[($r + 3) * $size + $c] -eq 1 -and $data[($r + 4) * $size + $c] -eq 1 -and $data[($r + 5) * $size + $c] -eq 0 -and 
-                $data[($r + 6) * $size + $c] -eq 1) {
-                if ($data[($r + 7) * $size + $c] -eq 0 -and $data[($r + 8) * $size + $c] -eq 0 -and $data[($r + 9) * $size + $c] -eq 0 -and $data[($r + 10) * $size + $c] -eq 0) {
+            if ($data[$off] -eq 1 -and $data[$off + $size] -eq 0 -and $data[$off + (2 * $size)] -eq 1 -and 
+                $data[$off + (3 * $size)] -eq 1 -and $data[$off + (4 * $size)] -eq 1 -and $data[$off + (5 * $size)] -eq 0 -and 
+                $data[$off + (6 * $size)] -eq 1) {
+                if ($data[$off + (7 * $size)] -eq 0 -and $data[$off + (8 * $size)] -eq 0 -and $data[$off + (9 * $size)] -eq 0 -and $data[$off + (10 * $size)] -eq 0) {
                     $pen += 40
                 }
             }
@@ -2089,13 +2112,14 @@ function GetPenalty([hashtable]$m) {
 
 function ReadFormatInfo([hashtable]$m) {
     $bits = New-Object System.Collections.Generic.List[int]
-    [int[,]]$mMod = $m.Mod
+    [int[]]$mMod = $m.Mod
+    [int]$size = $m.Size
     for ([int]$i = 0; $i -lt 15; $i++) {
-        if ($i -le 5) { [void]$bits.Add([int]$mMod.GetValue(8,$i)) }
-        elseif ($i -eq 6) { [void]$bits.Add([int]$mMod.GetValue(8,7)) }
-        elseif ($i -eq 7) { [void]$bits.Add([int]$mMod.GetValue(8,8)) }
-        elseif ($i -eq 8) { [void]$bits.Add([int]$mMod.GetValue(7,8)) }
-        else { [int]$row = 14 - $i; [void]$bits.Add([int]$mMod.GetValue($row,8)) }
+        if ($i -le 5) { [void]$bits.Add($mMod[8 * $size + $i]) }
+        elseif ($i -eq 6) { [void]$bits.Add($mMod[8 * $size + 7]) }
+        elseif ($i -eq 7) { [void]$bits.Add($mMod[8 * $size + 8]) }
+        elseif ($i -eq 8) { [void]$bits.Add($mMod[7 * $size + 8]) }
+        else { [int]$row = 14 - $i; [void]$bits.Add($mMod[$row * $size + 8]) }
     }
     $fmtStr = $bits -join ""
     $ec = $null; [int]$mask = -1
@@ -2115,6 +2139,7 @@ function UnmaskQR([hashtable]$m, [int]$p) {
     if (-not $script:MATRIX_CACHE.ContainsKey($cacheKey)) {
         [int[]]$maskArr = New-Object "int[]" ($size * $size)
         for ([int]$row = 0; $row -lt $size; $row++) {
+            [int]$rowOff = $row * $size
             for ([int]$col = 0; $col -lt $size; $col++) {
                 [bool]$v = switch ($p) {
                     0 { (($row + $col) % 2) -eq 0 }
@@ -2126,7 +2151,7 @@ function UnmaskQR([hashtable]$m, [int]$p) {
                     6 { (((($row * $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                     7 { (((($row + $col) % 2) + (($row * $col) % 3)) % 2) -eq 0 }
                 }
-                $maskArr[$row * $size + $col] = if ($v) { 1 } else { 0 }
+                $maskArr[$rowOff + $col] = if ($v) { 1 } else { 0 }
             }
         }
         $script:MATRIX_CACHE[$cacheKey] = $maskArr
@@ -2134,18 +2159,20 @@ function UnmaskQR([hashtable]$m, [int]$p) {
     [int[]]$maskArr = $script:MATRIX_CACHE[$cacheKey]
 
     $r = NewM $size
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
-    [int[,]]$rMod = $r.Mod
-    [bool[,]]$rFunc = $r.Func
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
+    [int[]]$rMod = $r.Mod
+    [bool[]]$rFunc = $r.Func
     for ([int]$row = 0; $row -lt $size; $row++) {
+        [int]$rowOff = $row * $size
         for ([int]$col = 0; $col -lt $size; $col++) {
-            $rFunc.SetValue([bool]$mFunc.GetValue($row,$col), $row, $col)
-            [int]$v = [int]$mMod.GetValue($row,$col)
-            if (-not [bool]$mFunc.GetValue($row,$col)) {
-                if ($maskArr[$row * $size + $col] -eq 1) { $v = 1 - $v }
+            [int]$off = $rowOff + $col
+            $rFunc[$off] = $mFunc[$off]
+            [int]$v = $mMod[$off]
+            if (-not $mFunc[$off]) {
+                if ($maskArr[$off] -eq 1) { $v = 1 - $v }
             }
-            $rMod.SetValue($v, $row, $col)
+            $rMod[$off] = $v
         }
     }
     return $r
@@ -2155,25 +2182,29 @@ function ExtractBitsQR([hashtable]$m) {
     $bits = New-Object System.Collections.Generic.List[int]
     [bool]$up = $true
     [int]$size = [int]$m.Size
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
     for ([int]$right = $size - 1; $right -ge 1; $right -= 2) {
         if ($right -eq 6) { $right = 5 }
         if ($up) {
             for ([int]$row = $size - 1; $row -ge 0; $row--) {
+                [int]$rowOff = $row * $size
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not [bool]$mFunc.GetValue($row,$col)) {
-                        [void]$bits.Add([int]$mMod.GetValue($row,$col))
+                    [int]$off = $rowOff + $col
+                    if (-not $mFunc[$off]) {
+                        [void]$bits.Add($mMod[$off])
                     }
                 }
             }
         } else {
             for ([int]$row = 0; $row -lt $size; $row++) {
+                [int]$rowOff = $row * $size
                 for ([int]$dc = 0; $dc -le 1; $dc++) {
                     [int]$col = $right - $dc
-                    if (-not [bool]$mFunc.GetValue($row,$col)) {
-                        [void]$bits.Add([int]$mMod.GetValue($row,$col))
+                    [int]$off = $rowOff + $col
+                    if (-not $mFunc[$off]) {
+                        [void]$bits.Add($mMod[$off])
                     }
                 }
             }
@@ -2419,10 +2450,49 @@ function GetQualityMetrics($m) {
 }
 
 function FindBestMask($m) {
+    [int]$size = [int]$m.Size
+    
+    # Evaluar en paralelo para V20+ (size >= 97)
+    if ($size -ge 97) {
+        $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+        # Importar funciones necesarias al pool
+        $funcs = "ApplyMask", "GetPenalty", "NewM", "NewMRect", "CopyM", "SetM", "GetM", "SetF", "IsF"
+        foreach ($f in $funcs) {
+            $def = Get-Content "function:\$f" -ErrorAction SilentlyContinue
+            if ($def) {
+                $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry($f, $def)))
+            }
+        }
+        
+        $rs = [runspacefactory]::CreateRunspacePool(1, 8, $iss, $Host)
+        $rs.Open()
+        $tasks = New-Object System.Collections.Generic.List[hashtable]
+        
+        for ($p = 0; $p -lt 8; $p++) {
+            $ps = [powershell]::Create().AddScript({
+                param($m, $p, $size)
+                $data = ApplyMask $m $p
+                return @{ Mask = $p; Penalty = GetPenalty $data $size }
+            }).AddArgument($m).AddArgument($p).AddArgument($size)
+            $ps.RunspacePool = $rs
+            [void]$tasks.Add(@{ ps = $ps; async = $ps.BeginInvoke() })
+        }
+        
+        $min = [int]::MaxValue; $best = 0
+        foreach ($t in $tasks) {
+            $res = $t.ps.EndInvoke($t.async)
+            if ($res.Penalty -lt $min) { $min = $res.Penalty; $best = $res.Mask }
+            $t.ps.Dispose()
+        }
+        $rs.Close(); $rs.Dispose()
+        return $best
+    }
+
+    # Secuencial para versiones pequeñas
     $best = 0; $min = [int]::MaxValue
     for ($p = 0; $p -lt 8; $p++) {
-        $masked = ApplyMask $m $p
-        $pen = GetPenalty $masked
+        $maskedData = ApplyMask $m $p
+        $pen = GetPenalty $maskedData $size
         if ($pen -lt $min) { $min = $pen; $best = $p }
     }
     return $best
@@ -2436,33 +2506,40 @@ function AddFormat([hashtable]$m, [string]$ec, [int]$mask) {
     for ([int]$i = 0; $i -lt 15; $i++) { $fmt[$i] = [int][string]$fmtVal[$i] }
     
     [int]$size = [int]$m.Size
-    [int[,]]$mMod = $m.Mod
-    [bool[,]]$mFunc = $m.Func
+    [int[]]$mMod = $m.Mod
+    [bool[]]$mFunc = $m.Func
     
     for ([int]$i = 0; $i -lt 15; $i++) {
         [int]$bit = $fmt[$i]
         
         # Horizontal sequence
         if ($i -le 5) {
-            $mFunc.SetValue($true, 8, $i); $mMod.SetValue($bit, 8, $i)
+            [int]$off = 8 * $size + $i
+            $mFunc[$off] = $true; $mMod[$off] = $bit
         } elseif ($i -eq 6) {
-            $mFunc.SetValue($true, 8, 7); $mMod.SetValue($bit, 8, 7)
+            [int]$off = 8 * $size + 7
+            $mFunc[$off] = $true; $mMod[$off] = $bit
         } elseif ($i -eq 7) {
-            $mFunc.SetValue($true, 8, 8); $mMod.SetValue($bit, 8, 8)
+            [int]$off = 8 * $size + 8
+            $mFunc[$off] = $true; $mMod[$off] = $bit
         } elseif ($i -eq 8) {
-            $mFunc.SetValue($true, 7, 8); $mMod.SetValue($bit, 7, 8)
+            [int]$off = 7 * $size + 8
+            $mFunc[$off] = $true; $mMod[$off] = $bit
         } else {
             [int]$row = 14 - $i
-            $mFunc.SetValue($true, $row, 8); $mMod.SetValue($bit, $row, 8)
+            [int]$off = $row * $size + 8
+            $mFunc[$off] = $true; $mMod[$off] = $bit
         }
         
         # Copias
         if ($i -le 7) {
             [int]$col = $size - 1 - $i
-            $mFunc.SetValue($true, 8, $col); $mMod.SetValue($bit, 8, $col)
+            [int]$off = 8 * $size + $col
+            $mFunc[$off] = $true; $mMod[$off] = $bit
         } else {
             [int]$row = $size - 15 + $i
-            $mFunc.SetValue($true, $row, 8); $mMod.SetValue($bit, $row, 8)
+            [int]$off = $row * $size + 8
+            $mFunc[$off] = $true; $mMod[$off] = $bit
         }
     }
 }
@@ -3215,18 +3292,62 @@ function Convert-SvgToPdf {
     [void]$pdfObjects.Add("2 0 obj`n<< /Type /Pages /Kids [3 0 R] /Count 1 >>`nendobj")
     [void]$pdfObjects.Add("3 0 obj`n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $width $height] /Contents 4 0 R /Resources << /ProcSet [/PDF /Text /ImageB /ImageC /ImageI] >> >>`nendobj")
     $streamBytes = [System.Text.Encoding]::ASCII.GetBytes($contentStream)
-    [void]$pdfObjects.Add("4 0 obj`n<< /Length $($streamBytes.Length) >>`nstream`n$contentStream`nendstream`nendobj")
+    $ms = New-Object System.IO.MemoryStream
+    $df = New-Object System.IO.Compression.DeflateStream($ms, [System.IO.Compression.CompressionMode]::Compress, $true)
+    $df.Write($streamBytes, 0, $streamBytes.Length)
+    $df.Close()
+    $compressedBytes = $ms.ToArray()
+    $ms.Close()
+
+    # PDF FlateDecode requires ZLIB header (0x78 0x9C for default compression)
+    # The DeflateStream in .NET doesn't include ZLIB header/checksum.
+    # For a simple implementation, we prepend 0x78 0x9C.
+    $zlibBytes = New-Object byte[] ($compressedBytes.Length + 2)
+    $zlibBytes[0] = 0x78; $zlibBytes[1] = 0x9C
+    [Array]::Copy($compressedBytes, 0, $zlibBytes, 2, $compressedBytes.Length)
+
+    [void]$pdfObjects.Add("4 0 obj`n<< /Length $($zlibBytes.Length) /Filter /FlateDecode >>`nstream")
+    # We must write binary data to the list or handle it carefully
+    # To keep the list as string-based for now, we'll convert to a special placeholder
+    # and handle the final join differently.
+    [void]$pdfObjects.Add($zlibBytes)
+    [void]$pdfObjects.Add("endstream`nendobj")
+    
     $pdfHeader = "%PDF-1.4`n"
-    $pdfBody = ($pdfObjects -join "`n") + "`n"
-    $offsets = @(0); $currentOffset = $pdfHeader.Length
-    foreach ($obj in $pdfObjects) { $offsets += $currentOffset; $currentOffset += $obj.Length + 1 }
+    
+    # Calculate offsets manually to handle binary data in pdfObjects
+    $offsets = @(0)
+    $currentOffset = $pdfHeader.Length
+    $binaryBody = New-Object System.Collections.Generic.List[byte]
+    
+    foreach ($obj in $pdfObjects) {
+        $offsets += $currentOffset
+        if ($obj -is [byte[]]) {
+            $binaryBody.AddRange($obj)
+            $currentOffset += $obj.Length
+        } else {
+            $bytes = [System.Text.Encoding]::ASCII.GetBytes("$obj`n")
+            $binaryBody.AddRange($bytes)
+            $currentOffset += $bytes.Length
+        }
+    }
+    
     $xref = "xref`n0 $($pdfObjects.Count + 1)`n"
     foreach ($offset in $offsets) { if ($offset -eq 0) { $xref += "0000000000 65535 f `n" } else { $xref += ([string]$offset).PadLeft(10, '0') + " 00000 n `n" } }
-    $xrefOffset = $pdfHeader.Length + $pdfBody.Length
+    
+    $xrefOffset = $currentOffset
     $trailer = "trailer`n<< /Size $($pdfObjects.Count + 1) /Root 1 0 R >>`nstartxref`n$xrefOffset`n%%EOF"
+    
     try {
-        [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($PdfPath), $pdfHeader + $pdfBody + $xref + $trailer, [System.Text.Encoding]::ASCII)
-        Write-Status "[OK] SVG convertido a PDF exitosamente en: $PdfPath"
+        $fileStream = [System.IO.File]::Create([System.IO.Path]::GetFullPath($PdfPath))
+        $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($pdfHeader)
+        $fileStream.Write($headerBytes, 0, $headerBytes.Length)
+        $bodyBytes = $binaryBody.ToArray()
+        $fileStream.Write($bodyBytes, 0, $bodyBytes.Length)
+        $xrefBytes = [System.Text.Encoding]::ASCII.GetBytes($xref + $trailer)
+        $fileStream.Write($xrefBytes, 0, $xrefBytes.Length)
+        $fileStream.Close()
+        Write-Status "[OK] SVG convertido a PDF exitosamente (con compresión) en: $PdfPath"
     } catch { Write-Error "Error al escribir el archivo PDF: $_" }
 }
 
@@ -3965,10 +4086,34 @@ end
         # 2. Content Object
         $enc = [System.Text.Encoding]::GetEncoding(1252)
         $contentBytes = $enc.GetBytes($contentSb.ToString())
+        
+        # Compresión FlateDecode (ZLIB RFC 1950)
+        $ms = New-Object System.IO.MemoryStream
+        $ms.WriteByte(0x78) # ZLIB Header
+        $ms.WriteByte(0x9C) 
+        
+        $deflateStream = New-Object System.IO.Compression.DeflateStream($ms, [System.IO.Compression.CompressionMode]::Compress, $true)
+        $deflateStream.Write($contentBytes, 0, $contentBytes.Length)
+        $deflateStream.Close()
+        
+        # Adler-32 Checksum
+        $adlerA = 1; $adlerB = 0
+        foreach ($b in $contentBytes) {
+            $adlerA = ($adlerA + $b) % 65521
+            $adlerB = ($adlerB + $adlerA) % 65521
+        }
+        $adler = ($adlerB -shl 16) -bor $adlerA
+        $adlerBytes = [BitConverter]::GetBytes([uint32]$adler)
+        if ([BitConverter]::IsLittleEndian) { [Array]::Reverse($adlerBytes) }
+        $ms.Write($adlerBytes, 0, $adlerBytes.Length)
+        
+        $compressedBytes = $ms.ToArray()
+        $ms.Dispose()
+
         &$StartObj
         $contId = $objOffsets.Count
-        &$WriteStr "<< /Length $($contentBytes.Length) >>`nstream`n"
-        $bw.Write($contentBytes)
+        &$WriteStr "<< /Length $($compressedBytes.Length) /Filter /FlateDecode >>`nstream`n"
+        $bw.Write($compressedBytes)
         &$WriteStr "`nendstream`nendobj`n"
 
         # 3. Page Object (Write it now, sequentially)
