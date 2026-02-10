@@ -49,6 +49,8 @@ param(
     [string]$FontFamily = "Arial, sans-serif",
     [string]$GoogleFont = "",
     [ValidateSet('square','circle','diamond','rounded','star')][string]$ModuleShape = 'square',
+    [string]$EmbedPath = "",
+    [switch]$DataUri,
     [switch]$PdfUnico,
     [string]$PdfUnicoNombre = "qr_combinado.pdf",
     [string]$Layout = "Default",
@@ -103,6 +105,9 @@ Add-Type -AssemblyName System.Drawing
 $script:MATRIX_CACHE = [hashtable]::Synchronized(@{})
 
 # Funciones de utilidad para el manejo de matrices (Optimizadas para PS 5.1)
+function Write-Status($msg) { Write-Verbose "[STATUS] $msg" }
+function Write-LogDebug($msg) { Write-Debug "[DEBUG] $msg" }
+
 function NewM([int]$size) {
     return @{ 
         Size = $size; 
@@ -1098,10 +1103,6 @@ function Get-StructuredAppendParity($txt) {
     $par = 0
     foreach ($b in $bytes) { $par = $par -bxor $b }
     return $par
-}
-
-function Write-Status($message) {
-    Write-Information $message -InformationAction Continue
 }
 
 $script:MICRO_CAP = @{
@@ -2614,9 +2615,10 @@ function ExportPng {
         [string]$fontFamily = "Arial, sans-serif",
         [string]$googleFont = "",
         [string]$moduleShape = "square",
-        [switch]$EInk
+        [switch]$EInk,
+        [switch]$ReturnBitmap
     )
-    if (-not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
+    if (-not $ReturnBitmap -and -not $PSCmdlet.ShouldProcess($path, "Exportar PNG")) { return }
     Add-Type -AssemblyName System.Drawing
     
     $size = $m.Size
@@ -2839,6 +2841,9 @@ function ExportPng {
     
     $qrBrush.Dispose()
     $g.Dispose()
+    
+    if ($ReturnBitmap) { return $bmp }
+    
     $bmp.Save($path, [Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
 }
@@ -4507,25 +4512,86 @@ function ShowConsoleRect {
 }
 
 function ShowConsole($m) {
-    Write-Output ""
-    $border = [string]::new([char]0x2588, ($m.Size + 2) * 2)
-    Write-Output "  $border"
+    [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
     
-    for ($r = 0; $r -lt $m.Size; $r++) {
+    # Render ANSI usando caracteres de medio bloque (Unicode 0x2580 '▀')
+    # Permite mostrar dos filas de píxeles en una sola línea de texto de consola.
+    Write-Output "`n  QR Console Render (ANSI High-Res):"
+    
+    # Añadir un borde superior (Quiet Zone)
+    for ($i=0; $i -lt 2; $i++) { Write-Output "" }
+
+    # Procesar la matriz de dos en dos filas
+    for ([int]$r = 0; $r -lt $h; $r += 2) {
         [System.Text.StringBuilder]$sbLine = New-Object System.Text.StringBuilder
-        [void]$sbLine.Append("  ")
-        [void]$sbLine.Append([char]0x2588)
-        [void]$sbLine.Append([char]0x2588)
-        for ($c = 0; $c -lt $m.Size; $c++) {
-            [void]$sbLine.Append($(if ((GetM $m $r $c) -eq 1) { "  " } else { [string]::new([char]0x2588, 2) }))
+        [void]$sbLine.Append("    ") # Margen izquierdo
+        
+        for ([int]$c = 0; $c -lt $w; $c++) {
+            [int]$top = GetM $m $r $c
+            [int]$bot = if ($r + 1 -lt $h) { GetM $m ($r + 1) $c } else { 0 }
+            
+            # Mapeo de medio bloque:
+            # top=1, bot=1 -> bloque completo (█) 0x2588
+            # top=1, bot=0 -> bloque superior (▀) 0x2580
+            # top=0, bot=1 -> bloque inferior (▄) 0x2584
+            # top=0, bot=0 -> espacio ( )
+            
+            if ($top -eq 1 -and $bot -eq 1) { [void]$sbLine.Append([char]0x2588) }
+            elseif ($top -eq 1 -and $bot -eq 0) { [void]$sbLine.Append([char]0x2580) }
+            elseif ($top -eq 0 -and $bot -eq 1) { [void]$sbLine.Append([char]0x2584) }
+            else { [void]$sbLine.Append(" ") }
         }
-        [void]$sbLine.Append([char]0x2588)
-        [void]$sbLine.Append([char]0x2588)
         Write-Output $sbLine.ToString()
     }
-    
-    Write-Output "  $border"
     Write-Output ""
+}
+
+function ExportEps {
+    param($m, $path, $backgroundColor = "#ffffff", $foregroundColor = "#000000")
+    Write-Status "Exportando EPS a $path..."
+    
+    [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
+    
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine("%!PS-Adobe-3.0 EPSF-3.0")
+    [void]$sb.AppendLine("%%BoundingBox: 0 0 $w $h")
+    [void]$sb.AppendLine("%%LanguageLevel: 2")
+    [void]$sb.AppendLine("%%Pages: 1")
+    [void]$sb.AppendLine("%%EndComments")
+    
+    # Definir colores (Convertir HEX a RGB 0-1)
+    function HexToRgb($hex) {
+        $clean = $hex.Replace("#", "")
+        $r = [Convert]::ToInt32($clean.Substring(0, 2), 16) / 255
+        $g = [Convert]::ToInt32($clean.Substring(2, 2), 16) / 255
+        $b = [Convert]::ToInt32($clean.Substring(4, 2), 16) / 255
+        return "$([math]::Round($r,3)) $([math]::Round($g,3)) $([math]::Round($b,3))"
+    }
+    
+    $fgRgb = HexToRgb $foregroundColor
+    $bgRgb = HexToRgb $backgroundColor
+    
+    # Fondo
+    [void]$sb.AppendLine("$bgRgb setrgbcolor")
+    [void]$sb.AppendLine("0 0 $w $h rectfill")
+    
+    # Módulos QR
+    [void]$sb.AppendLine("$fgRgb setrgbcolor")
+    for ([int]$r = 0; $r -lt $h; $r++) {
+        for ([int]$c = 0; $c -lt $w; $c++) {
+            if ((GetM $m $r $c) -eq 1) {
+                # En PostScript, el origen (0,0) es la esquina inferior izquierda.
+                # Debemos invertir el eje Y.
+                $y = $h - $r - 1
+                [void]$sb.AppendLine("$c $y 1 1 rectfill")
+            }
+        }
+    }
+    
+    [void]$sb.AppendLine("%%EOF")
+    [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($path), $sb.ToString())
 }
 
 # --- HELPERS PARA FORMATOS ESTRUCTURADOS ---
@@ -5564,10 +5630,23 @@ function New-QRCode {
             switch ($ext) {
                 ".svg" { ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont }
                 ".pdf" { ExportPdf $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont -EmbedPath $EmbedPath }
+                ".eps" { ExportEps $final $OutputPath $BackgroundColor $ForegroundColor }
                 default { ExportPng $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape }
             }
         }
         Write-Status "Guardado: $OutputPath"
+    }
+
+    if ($DataUri) {
+        # Generar PNG en memoria y convertir a Base64
+        $ms = New-Object System.IO.MemoryStream
+        $img = ExportPng $final "" $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -ReturnBitmap
+        $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+        $b64 = [Convert]::ToBase64String($ms.ToArray())
+        $dataUriStr = "data:image/png;base64,$b64"
+        Write-Output "`nData URI (Base64):"
+        Write-Output $dataUriStr
+        $ms.Dispose(); $img.Dispose()
     }
     
     return $final
@@ -5706,7 +5785,8 @@ function Start-BatchProcessing {
         [switch]$Compress,
         [string]$SignKeyPath = "",
         [string]$SignSeparator = "|",
-        [string]$EmbedPath = ""
+        [string]$EmbedPath = "",
+        [switch]$DataUri
     )
     
     if (-not (Test-Path $IniPath) -and [string]::IsNullOrEmpty($InputFileOverride)) { 
@@ -5989,6 +6069,8 @@ function Start-BatchProcessing {
                     FrameColor = $rowFrameColor
                     FontFamily = $fontFamilyIni
                     GoogleFont = $googleFontIni
+                    EmbedPath = $EmbedPath
+                    DataUri = $DataUri
                     NameParts = $nameParts
                 }
             })
@@ -6016,7 +6098,7 @@ function Start-BatchProcessing {
             try {
                 if ($item.PdfUnico -and $fmt -eq "pdf") {
                     # Solo generar matriz para PDF único
-                    $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -EInk:$p.EInk -Compress:$p.Compress -ModuleShape $p.ModuleShape -SignKeyPath $p.SignKeyPath -SignSeparator $p.SignSeparator
+                    $m = New-QRCode -Data $item.Data -OutputPath $null -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -EInk:$p.EInk -Compress:$p.Compress -ModuleShape $p.ModuleShape -SignKeyPath $p.SignKeyPath -SignSeparator $p.SignSeparator -EmbedPath $p.EmbedPath -DataUri:$p.DataUri
                     return @{ 
                         Index = [int]$item.Index; 
                         Type = "PDFPage"; 
@@ -6043,7 +6125,7 @@ function Start-BatchProcessing {
                         }
                     }
                 } else {
-                    New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont -EInk:$p.EInk -Compress:$p.Compress -ModuleShape $p.ModuleShape -SignKeyPath $p.SignKeyPath -SignSeparator $p.SignSeparator
+                    New-QRCode -Data $item.Data -OutputPath $finalPath -ECLevel $p.ECLevel -Version $p.Version -ModuleSize $p.ModuleSize -EciValue $p.EciValue -Symbol $p.Symbol -Model $p.Model -MicroVersion $p.MicroVersion -Fnc1First:$p.Fnc1First -Fnc1Second:$p.Fnc1Second -Fnc1ApplicationIndicator $p.Fnc1ApplicationIndicator -StructuredAppendIndex $p.StructuredAppendIndex -StructuredAppendTotal $p.StructuredAppendTotal -StructuredAppendParity $p.StructuredAppendParity -StructuredAppendParityData $p.StructuredAppendParityData -LogoPath $p.LogoPath -LogoScale $p.LogoScale -BottomText $p.BottomText -ForegroundColor $p.ForegroundColor -ForegroundColor2 $p.ForegroundColor2 -BackgroundColor $p.BackgroundColor -Rounded $p.Rounded -GradientType $p.GradientType -FrameText $p.FrameText -FrameColor $p.FrameColor -FontFamily $p.FontFamily -GoogleFont $p.GoogleFont -EInk:$p.EInk -Compress:$p.Compress -ModuleShape $p.ModuleShape -SignKeyPath $p.SignKeyPath -SignSeparator $p.SignSeparator -EmbedPath $p.EmbedPath -DataUri:$p.DataUri
                     return @{ Index = [int]$item.Index; Type = "File"; Path = $finalPath }
                 }
             } catch {

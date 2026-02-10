@@ -44,7 +44,9 @@
 - **Segmentación Inteligente**: Alterna automáticamente entre modos Numérico, Alfanumérico, Byte (UTF-8) y Kanji (Shift-JIS).
 - **Corrección de Errores (ECC)**: Implementación completa de Reed-Solomon (GF 256) niveles L, M, Q, H.
 - **Portabilidad Absoluta**: El script es 100% independiente; los identificadores GS1 y la lógica de validación están integrados sin necesidad de archivos JSON o librerías externas.
-- **Exportación Multi-formato**: Generación simultánea de **PDF, SVG y PNG** en un solo proceso.
+- **Exportación Multi-formato**: Generación simultánea de **PDF, SVG, PNG y EPS** en un solo proceso.
+- **Visualización ANSI**: Renderizado de alta resolución en consola mediante medio bloque Unicode.
+- **Integración Web**: Salida directa en formato **Data URI (Base64)** para su uso inmediato en aplicaciones web.
 - **Personalización Estética**: Soporte para colores sólidos, degradados (lineales/radiales), módulos redondeados y marcos decorativos ("ESCANEAME").
 - **Procesamiento por Lotes**: Motor robusto para procesar archivos **TSV** con mapeo dinámico de columnas y personalización por fila.
 - **Incrustación de Logos**: Soporte para logos PNG/JPG/SVG con ajuste automático de nivel de error a **H (High)**.
@@ -77,6 +79,12 @@ Salida rasterizada de alta compatibilidad.
   - **Degradados**: Debido a restricciones de la librería nativa `System.Drawing` en entornos sin dependencias GDI+ avanzadas, el formato PNG solo soporta colores sólidos para garantizar la portabilidad absoluta.
   - **Logos Mixtos**: Los logos SVG no se incrustan en PNG para evitar dependencias de renderizado externo; se recomienda usar logos PNG/JPG para salidas raster.
 
+### 📐 EPS (Encapsulated PostScript 3.0)
+Exportación vectorial profesional para la industria gráfica.
+- **Estándar**: Generación de archivos **EPSF-3.0** compatibles con software de pre-impresión y diseño vectorial.
+- **Color**: Conversión precisa de HEX a espacio de color RGB de PostScript.
+- **Geometría**: Inversión automática del eje Y para cumplir con el sistema de coordenadas cartesiano de PostScript.
+
 ---
 
 ## 🚀 Guía de Inicio Rápido
@@ -88,9 +96,15 @@ Salida rasterizada de alta compatibilidad.
 
 ### Ejemplos de Uso
 
-**Generación Básica (SVG):**
+**Generación Básica (SVG/EPS/PNG):**
 ```powershell
 .\QRCode.ps1 -Data "https://github.com" -OutputPath "codigo.svg"
+.\QRCode.ps1 -Data "https://github.com" -OutputPath "codigo.eps"
+```
+
+**Salida Data URI (Base64):**
+```powershell
+.\QRCode.ps1 -Data "Info" -DataUri
 ```
 
 **Generación con Estilo (PDF):**
@@ -224,10 +238,10 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 - **🎨 Estética y UX**:
   - **Redondeado Avanzado y Formas**: ✅ Implementado uso de `GraphicsPath` para módulos geométricos variados.
   - **Optimización E-Ink**: ✅ Implementado perfiles de alto contraste y desactivación de anti-aliasing.
-  - **Logging Estándar**: Transición a `Write-Verbose` y `Write-Debug` para mejor integración en scripts.
-  - **Render ANSI**: Visualización instantánea en consola mediante caracteres de medio bloque Unicode.
-  - **Formato EPS**: Exportación vectorial profesional para industria gráfica.
-  - **Data URI**: Salida directa en Base64 para integración web inmediata.
+  - **Logging Estándar**: ✅ Transición a `Write-Verbose` y `Write-Debug` para mejor integración en scripts.
+  - **Render ANSI**: ✅ Visualización instantánea en consola mediante caracteres de medio bloque Unicode.
+  - **Formato EPS**: ✅ Exportación vectorial profesional para industria gráfica.
+  - **Data URI**: ✅ Salida directa en Base64 para integración web inmediata.
 
 ### 🌐 Integraciones y Sistemas Externos
 *Estas capacidades requieren servicios adicionales, contenedores o librerías de terceros.*
