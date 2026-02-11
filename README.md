@@ -44,9 +44,11 @@
 - **Segmentación Inteligente**: Alterna automáticamente entre modos Numérico, Alfanumérico, Byte (UTF-8) y Kanji (Shift-JIS).
 - **Corrección de Errores (ECC)**: Implementación completa de Reed-Solomon (GF 256) niveles L, M, Q, H.
 - **Portabilidad Absoluta**: El script es 100% independiente; los identificadores GS1 y la lógica de validación están integrados sin necesidad de archivos JSON o librerías externas.
-- **Exportación Multi-formato**: Generación simultánea de **PDF, SVG, PNG y EPS** en un solo proceso.
+- **Exportación Multi-formato**: Generación simultánea de **PDF, SVG, PNG, EPS, PBM y PGM** en un solo proceso.
 - **Visualización ANSI**: Renderizado de alta resolución en consola mediante medio bloque Unicode.
 - **Integración Web**: Salida directa en formato **Data URI (Base64)** para su uso inmediato en aplicaciones web.
+- **Payloads Listos**: Generadores nativos para **MailTo, SMS, Tel, WhatsApp, Geo, vEvent y vCalendar**.
+- **Validación Extendida**: Validadores para **Email, URL estricta, E.164 y Dominio**.
 - **Personalización Estética**: Soporte para colores sólidos, degradados (lineales/radiales), módulos redondeados y marcos decorativos ("ESCANEAME").
 - **Procesamiento por Lotes**: Motor robusto para procesar archivos **TSV** con mapeo dinámico de columnas y personalización por fila.
 - **Incrustación de Logos**: Soporte para logos PNG/JPG/SVG con ajuste automático de nivel de error a **H (High)**.
@@ -87,6 +89,12 @@ Exportación vectorial profesional para la industria gráfica.
 - **Color**: Conversión precisa de HEX a espacio de color RGB de PostScript.
 - **Geometría**: Inversión automática del eje Y para cumplir con el sistema de coordenadas cartesiano de PostScript.
 
+### 🧾 PBM/PGM (Netpbm)
+Exportación raster ultra ligera para automatización y entornos sin GDI+ avanzado.
+- **PBM (P1)**: Blanco y negro puro para impresoras o pipelines mínimos.
+- **PGM (P2)**: Escala de grises simple con valores 0–255.
+- **Compatibilidad**: Archivos de texto plano fáciles de inspeccionar y transformar.
+
 ---
 
 ## 🚀 Guía de Inicio Rápido
@@ -107,6 +115,30 @@ Exportación vectorial profesional para la industria gráfica.
 **Salida Data URI (Base64):**
 ```powershell
 .\QRCBScript.ps1 -Data "Info" -DataUri
+```
+
+**Payloads Rápidos (Mail/SMS/WhatsApp/Geo):**
+```powershell
+$mail = New-MailTo -To "hola@ejemplo.com" -Subject "Info" -Body "Mensaje"
+$sms = New-Sms -Number "+34600000000" -Message "Hola"
+$wa = New-WhatsApp -Number "+34600000000" -Message "Mensaje"
+$geo = New-Geo -Latitude 40.4168 -Longitude -3.7038
+.\QRCBScript.ps1 -Data $mail -OutputPath "mail.pbm"
+.\QRCBScript.ps1 -Data $sms -OutputPath "sms.pgm"
+```
+
+**URI de Pago Genérica (UPI/PIX/Bitcoin):**
+```powershell
+$pay = New-PaymentUri -Scheme "upi" -Address "usuario@banco" -Params @{ am = "10.50"; cu = "INR" }
+.\QRCBScript.ps1 -Data $pay -OutputPath "pago.png"
+```
+
+**Validaciones Rápidas (Email/URL/E.164/Dominio):**
+```powershell
+Test-Email "test@ejemplo.com"
+Test-UrlStrict "https://ejemplo.com"
+Test-PhoneE164 "+34600000000"
+Test-Domain "ejemplo.com"
 ```
 
 **Generación con Estilo (PDF):**
@@ -130,6 +162,12 @@ $pago = New-EPC -Beneficiary "Empresa S.L." -IBAN "ES211234..." -Amount 125.50 -
 .\QRCBScript.ps1 -Data $pago -OutputPath "pago_sepa.pdf"
 ```
 
+**Eventos con vCalendar (VCALENDAR):**
+```powershell
+$evt = New-VCalendarEvent -Summary "Reunión" -Start (Get-Date "2026-02-15 10:00") -End (Get-Date "2026-02-15 11:00") -Location "Sala 1"
+.\QRCBScript.ps1 -Data $evt -OutputPath "evento.svg"
+```
+
 **Uso del Lanzador Interactivo:**
 Ejecuta `run_qrps.bat` para un menú guiado sin necesidad de comandos.
 
@@ -141,7 +179,7 @@ El archivo `config.ini` permite centralizar las preferencias globales. Los pará
 
 | Variable | Descripción | Valor por Defecto |
 | :--- | :--- | :--- |
-| `QRPS_FormatoSalida` | Formatos a generar (pueden ser varios: `svg,pdf,png`) | `pdf` |
+| `QRPS_FormatoSalida` | Formatos a generar (pueden ser varios: `svg,pdf,png,eps,pbm,pgm`) | `pdf` |
 | `QRPS_CarpetaSalida` | Directorio donde se guardarán los archivos | `salida_qr` |
 | `QRPS_ArchivoEntrada` | Nombre del archivo TSV para procesamiento por lotes | `lista_inputs.tsv` |
 | `QRPS_IndiceColumna` | Índice de la columna de datos en el TSV (1-basado) | `1` |
@@ -184,7 +222,10 @@ El motor reconoce y valida automáticamente los siguientes formatos mediante fun
   $pago = New-EPC -Beneficiary "IBERDROLA" -IBAN "ES21..." -Amount 45.0
   ```
 - **GS1**: Soporte para Identificadores de Aplicación (FNC1).
-- **URL / Email / Tel / SMS**: Acciones estándar del sistema.
+- **MailTo / SMS / Tel / WhatsApp**: Acciones rápidas con payloads nativos.
+- **Geo / vEvent / vCalendar**: Geolocalización y eventos completos.
+- **URI de Pago (genérica)**: Esquemas locales como `upi`, `pix`, `bitcoin`, etc.
+- **URL / Email**: Acciones estándar del sistema.
 - **Texto Plano**: Soporte completo para UTF-8 y Kanji (Shift-JIS).
 
 ---
@@ -231,8 +272,8 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 - **🛡️ Seguridad y Datos**:
   - **Firmas Digitales (ECDSA)**: ✅ Implementado utilizando .NET nativo (`System.Security.Cryptography`).
   - **Compresión de Datos**: ✅ Implementado algoritmos de compresión por diccionario para QR V40.
-  - **Nuevos Formatos**: ✅ Soporte para Geo-localización, vEvent y Cripto-direcciones.
-  - **Validación Semántica**: ✅ Verificación estricta de formatos (IBAN, vCard, EPC).
+  - **Nuevos Formatos**: ✅ Soporte para Geo-localización, vEvent, vCalendar, MailTo/SMS/Tel/WhatsApp y URI de pago genérica.
+  - **Validación Semántica**: ✅ Verificación estricta de formatos (IBAN, vCard, EPC, Email, URL, E.164, Dominio).
   - **Auto-split**: ✅ Fragmentación automática de datos mediante Structured Append.
   - **Portabilidad GS1**: ✅ Identificadores de aplicación integrados para independencia total del script.
   - **PDF/A-3**: ✅ Cumplimiento del estándar para permitir la incrustación de archivos de datos fuente.
@@ -243,6 +284,7 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
   - **Logging Estándar**: ✅ Transición a `Write-Verbose` y `Write-Debug` para mejor integración en scripts.
   - **Render ANSI**: ✅ Visualización instantánea en consola mediante caracteres de medio bloque Unicode.
   - **Formato EPS**: ✅ Exportación vectorial profesional para industria gráfica.
+  - **PBM/PGM**: ✅ Exportación Netpbm ultra ligera para pipelines simples.
   - **Data URI**: ✅ Salida directa en Base64 para integración web inmediata.
 
 ### 🌐 Integraciones y Sistemas Externos
@@ -278,4 +320,4 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 - **Restricciones**: No se implementan formatos propietarios cerrados como **SQRC** o **iQR**, ya que requieren algoritmos de cifrado y licencias específicas de DENSO WAVE.
 
 ---
-*Documentación actualizada al 9 de febrero de 2026. Cumplimiento verificado bajo estándares ISO/IEC 18004:2024.*
+*Documentación actualizada al 11 de febrero de 2026. Cumplimiento verificado bajo estándares ISO/IEC 18004:2024.*

@@ -86,10 +86,14 @@ FORMATOS DE DATOS AVANZADOS (Uso interno/Scripting):
   - New-EPC: Pagos SEPA (EPC QR). Requiere Beneficiario, IBAN y Monto.
   - New-WiFiConfig: Configuracion de red WiFi.
   - New-vCard / New-MeCard: Contactos electronicos.
+  - New-MailTo / New-Sms / New-Tel / New-WhatsApp: Acciones rapidas.
+  - New-Geo / New-vEvent / New-VCalendarEvent: Geolocalizacion y eventos.
+  - New-PaymentUri: URI de pago generica por esquema.
+  - Test-Email / Test-PhoneE164 / Test-UrlStrict / Test-Domain: Validaciones.
 
 PARAMETROS PRINCIPALES:
   -Data <string>           Contenido del codigo QR.
-  -OutputPath <ruta>       Ruta de salida (.pdf, .svg, .png).
+  -OutputPath <ruta>       Ruta de salida (.pdf, .svg, .png, .eps, .pbm, .pgm).
   -Symbol <QR|Micro|rMQR>  Tipo de simbologia (Default: AUTO).
   -ECLevel <L|M|Q|H>       Nivel de correccion de errores (Default: M).
   -LogoPath <ruta>         Ruta de imagen para incrustar en el centro.
@@ -4590,6 +4594,55 @@ function ShowConsole($m) {
     Write-Output ""
 }
 
+function ExportPbm {
+    param($m, $path, [int]$quiet = 4)
+    [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
+    [int]$outH = $h + ($quiet * 2)
+    [int]$outW = $w + ($quiet * 2)
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine("P1")
+    [void]$sb.AppendLine("$outW $outH")
+    for ([int]$r = -$quiet; $r -lt $h + $quiet; $r++) {
+        $line = New-Object System.Text.StringBuilder
+        for ([int]$c = -$quiet; $c -lt $w + $quiet; $c++) {
+            $v = 0
+            if ($r -ge 0 -and $r -lt $h -and $c -ge 0 -and $c -lt $w) {
+                $v = GetM $m $r $c
+            }
+            [void]$line.Append($v)
+            if ($c -lt $w + $quiet - 1) { [void]$line.Append(" ") }
+        }
+        [void]$sb.AppendLine($line.ToString())
+    }
+    [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($path), $sb.ToString())
+}
+
+function ExportPgm {
+    param($m, $path, [int]$quiet = 4)
+    [int]$h = if ($m['Height']) { $m['Height'] } else { $m['Size'] }
+    [int]$w = if ($m['Width']) { $m['Width'] } else { $m['Size'] }
+    [int]$outH = $h + ($quiet * 2)
+    [int]$outW = $w + ($quiet * 2)
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine("P2")
+    [void]$sb.AppendLine("$outW $outH")
+    [void]$sb.AppendLine("255")
+    for ([int]$r = -$quiet; $r -lt $h + $quiet; $r++) {
+        $line = New-Object System.Text.StringBuilder
+        for ([int]$c = -$quiet; $c -lt $w + $quiet; $c++) {
+            $v = 255
+            if ($r -ge 0 -and $r -lt $h -and $c -ge 0 -and $c -lt $w) {
+                $v = if ((GetM $m $r $c) -eq 1) { 0 } else { 255 }
+            }
+            [void]$line.Append($v)
+            if ($c -lt $w + $quiet - 1) { [void]$line.Append(" ") }
+        }
+        [void]$sb.AppendLine($line.ToString())
+    }
+    [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($path), $sb.ToString())
+}
+
 function ExportEps {
     param($m, $path, $backgroundColor = "#ffffff", $foregroundColor = "#000000")
     Write-Status "Exportando EPS a $path..."
@@ -4741,6 +4794,151 @@ function New-WiFiConfig {
     if ($Hidden) { [void]$sb.Append("H:true;") }
     [void]$sb.Append(";")
     return $sb.ToString()
+}
+
+function Test-Email {
+    param([string]$Email)
+    if ([string]::IsNullOrWhiteSpace($Email)) { return $false }
+    return $Email -match "^[^@\s]+@[^@\s]+\.[^@\s]+$"
+}
+
+function Test-UrlStrict {
+    param([string]$Url)
+    if ([string]::IsNullOrWhiteSpace($Url)) { return $false }
+    try {
+        $uri = [Uri]$Url
+        if (-not $uri.IsAbsoluteUri) { return $false }
+        return $uri.Scheme -match "^(https?|ftp)$"
+    } catch {
+        return $false
+    }
+}
+
+function Test-Domain {
+    param([string]$Domain)
+    if ([string]::IsNullOrWhiteSpace($Domain)) { return $false }
+    $d = $Domain.Trim().ToLower()
+    return $d -match "^(?=.{1,253}$)([a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$"
+}
+
+function Normalize-PhoneE164 {
+    param([string]$Phone)
+    if ([string]::IsNullOrWhiteSpace($Phone)) { return $null }
+    $p = $Phone.Trim()
+    if ($p -match "^\+?[1-9]\d{6,14}$") {
+        if ($p[0] -ne '+') { return "+$p" }
+        return $p
+    }
+    return $null
+}
+
+function Test-PhoneE164 {
+    param([string]$Phone)
+    return $null -ne (Normalize-PhoneE164 $Phone)
+}
+
+function New-MailTo {
+    param(
+        [Parameter(Mandatory)][string[]]$To,
+        [string]$Subject = "",
+        [string]$Body = "",
+        [string[]]$Cc = @(),
+        [string[]]$Bcc = @()
+    )
+    foreach ($addr in $To) { if (-not (Test-Email $addr)) { throw "Email inválido en To: $addr" } }
+    foreach ($addr in $Cc) { if (-not (Test-Email $addr)) { throw "Email inválido en Cc: $addr" } }
+    foreach ($addr in $Bcc) { if (-not (Test-Email $addr)) { throw "Email inválido en Bcc: $addr" } }
+    $toStr = ($To -join ",")
+    [System.Collections.Generic.List[string]]$params = New-Object System.Collections.Generic.List[string]
+    if ($Subject) { [void]$params.Add("subject=$([uri]::EscapeDataString($Subject))") }
+    if ($Body) { [void]$params.Add("body=$([uri]::EscapeDataString($Body))") }
+    if ($Cc.Count -gt 0) { [void]$params.Add("cc=$([uri]::EscapeDataString(($Cc -join ',')))") }
+    if ($Bcc.Count -gt 0) { [void]$params.Add("bcc=$([uri]::EscapeDataString(($Bcc -join ',')))") }
+    $uri = "mailto:$toStr"
+    if ($params.Count -gt 0) { $uri += "?" + ($params -join "&") }
+    return $uri
+}
+
+function New-Sms {
+    param(
+        [Parameter(Mandatory)][string]$Number,
+        [string]$Message = ""
+    )
+    $n = Normalize-PhoneE164 $Number
+    if ($null -eq $n) { throw "Número inválido (E.164) para SMS: $Number" }
+    $uri = "sms:$n"
+    if ($Message) { $uri += "?body=$([uri]::EscapeDataString($Message))" }
+    return $uri
+}
+
+function New-Tel {
+    param([Parameter(Mandatory)][string]$Number)
+    $n = Normalize-PhoneE164 $Number
+    if ($null -eq $n) { throw "Número inválido (E.164) para TEL: $Number" }
+    return "tel:$n"
+}
+
+function New-WhatsApp {
+    param(
+        [Parameter(Mandatory)][string]$Number,
+        [string]$Message = ""
+    )
+    $n = Normalize-PhoneE164 $Number
+    if ($null -eq $n) { throw "Número inválido (E.164) para WhatsApp: $Number" }
+    $digits = $n.Substring(1)
+    $uri = "https://wa.me/$digits"
+    if ($Message) { $uri += "?text=$([uri]::EscapeDataString($Message))" }
+    return $uri
+}
+
+function New-PaymentUri {
+    param(
+        [Parameter(Mandatory)][string]$Scheme,
+        [Parameter(Mandatory)][string]$Address,
+        [hashtable]$Params = @{}
+    )
+    $base = "${Scheme}:$Address"
+    if ($Params.Count -eq 0) { return $base }
+    [System.Collections.Generic.List[string]]$pairs = New-Object System.Collections.Generic.List[string]
+    foreach ($k in $Params.Keys) {
+        $v = $Params[$k]
+        if ($null -eq $v -or $v -eq "") { continue }
+        [void]$pairs.Add("$k=$([uri]::EscapeDataString([string]$v))")
+    }
+    if ($pairs.Count -eq 0) { return $base }
+    return $base + "?" + ($pairs -join "&")
+}
+
+function New-VCalendarEvent {
+    param(
+        [Parameter(Mandatory)][string]$Summary,
+        [Parameter(Mandatory)][DateTime]$Start,
+        [Parameter(Mandatory)][DateTime]$End,
+        [string]$Location = "",
+        [string]$Description = "",
+        [string]$Organizer = "",
+        [string[]]$Attendees = @(),
+        [string]$Uid = ""
+    )
+    if ($End -lt $Start) { throw "End no puede ser menor que Start" }
+    $uidFinal = if ($Uid) { $Uid } else { [Guid]::NewGuid().ToString() }
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.AppendLine("BEGIN:VCALENDAR")
+    [void]$sb.AppendLine("VERSION:2.0")
+    [void]$sb.AppendLine("PRODID:-//qrps//VCALENDAR//ES")
+    [void]$sb.AppendLine("METHOD:PUBLISH")
+    [void]$sb.AppendLine("BEGIN:VEVENT")
+    [void]$sb.AppendLine("UID:$uidFinal")
+    [void]$sb.AppendLine("SUMMARY:$Summary")
+    [void]$sb.AppendLine("DTSTART:$($Start.ToUniversalTime().ToString("yyyyMMddTHHmmssZ"))")
+    [void]$sb.AppendLine("DTEND:$($End.ToUniversalTime().ToString("yyyyMMddTHHmmssZ"))")
+    if ($Location) { [void]$sb.AppendLine("LOCATION:$Location") }
+    if ($Description) { [void]$sb.AppendLine("DESCRIPTION:$Description") }
+    if ($Organizer) { [void]$sb.AppendLine("ORGANIZER:$Organizer") }
+    foreach ($a in $Attendees) { if ($a) { [void]$sb.AppendLine("ATTENDEE:$a") } }
+    [void]$sb.AppendLine("END:VEVENT")
+    [void]$sb.AppendLine("END:VCALENDAR")
+    return $sb.ToString().TrimEnd("`r`n")
 }
 
 function New-EPC {
@@ -5374,6 +5572,8 @@ function New-QRCode {
                     ".svg" { ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont }
                     ".pdf" { ExportPdf $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont -EmbedPath $EmbedPath }
                     ".eps" { ExportEps $final $OutputPath $BackgroundColor $ForegroundColor }
+                    ".pbm" { ExportPbm $final $OutputPath 4 }
+                    ".pgm" { ExportPgm $final $OutputPath 4 }
                     default { ExportPng $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape }
                 }
             }
@@ -5627,6 +5827,8 @@ function New-QRCode {
             switch ($ext) {
                 ".svg" { ExportSvgRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -EInk:$EInk }
                 ".pdf" { ExportPdf $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -EInk:$EInk }
+                ".pbm" { ExportPbm $m $OutputPath 4 }
+                ".pgm" { ExportPgm $m $OutputPath 4 }
                 default { ExportPngRect $m $OutputPath $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -EInk:$EInk }
             }
         }
@@ -5792,6 +5994,8 @@ function New-QRCode {
                 ".svg" { ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont }
                 ".pdf" { ExportPdf $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont -EmbedPath $EmbedPath }
                 ".eps" { ExportEps $final $OutputPath $BackgroundColor $ForegroundColor }
+                ".pbm" { ExportPbm $final $OutputPath 4 }
+                ".pgm" { ExportPgm $final $OutputPath 4 }
                 default { ExportPng $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape }
             }
         }
@@ -6488,7 +6692,15 @@ function Show-Menu {
                 Write-Host " 2. Configuración WIFI"
                 Write-Host " 3. Contacto vCard"
                 Write-Host " 4. Contacto MeCard"
-                Write-Host " 5. Volver"
+                Write-Host " 5. Email (mailto)"
+                Write-Host " 6. SMS"
+                Write-Host " 7. Teléfono"
+                Write-Host " 8. WhatsApp"
+                Write-Host " 9. Geo"
+                Write-Host "10. vEvent"
+                Write-Host "11. vCalendar"
+                Write-Host "12. URI de Pago (genérica)"
+                Write-Host " 0. Volver"
                 $sub = Read-Host "Seleccione"
                 $advData = ""
                 switch ($sub) {
@@ -6515,6 +6727,64 @@ function Show-Menu {
                         $name = Read-Host "Nombre"
                         $tel = Read-Host "Teléfono"
                         $advData = New-MeCard -Name $name -Tel $tel
+                    }
+                    "5" {
+                        $toRaw = Read-Host "Destinatarios (separados por coma)"
+                        $subject = Read-Host "Asunto"
+                        $body = Read-Host "Mensaje"
+                        $toList = @()
+                        foreach ($t in ($toRaw -split ",")) { if ($t.Trim()) { $toList += $t.Trim() } }
+                        $advData = New-MailTo -To $toList -Subject $subject -Body $body
+                    }
+                    "6" {
+                        $num = Read-Host "Número (E.164, ej +34600000000)"
+                        $msg = Read-Host "Mensaje"
+                        $advData = New-Sms -Number $num -Message $msg
+                    }
+                    "7" {
+                        $num = Read-Host "Número (E.164, ej +34600000000)"
+                        $advData = New-Tel -Number $num
+                    }
+                    "8" {
+                        $num = Read-Host "Número (E.164, ej +34600000000)"
+                        $msg = Read-Host "Mensaje"
+                        $advData = New-WhatsApp -Number $num -Message $msg
+                    }
+                    "9" {
+                        $lat = Read-Host "Latitud"
+                        $lon = Read-Host "Longitud"
+                        $alt = Read-Host "Altitud (opcional)"
+                        $altVal = if ($alt) { [double]$alt } else { 0 }
+                        $advData = New-Geo -Latitude ([double]$lat) -Longitude ([double]$lon) -Altitude $altVal
+                    }
+                    "10" {
+                        $summary = Read-Host "Título"
+                        $start = Read-Host "Inicio (YYYY-MM-DD HH:MM)"
+                        $end = Read-Host "Fin (YYYY-MM-DD HH:MM)"
+                        $loc = Read-Host "Ubicación"
+                        $desc = Read-Host "Descripción"
+                        $advData = New-vEvent -Summary $summary -Start ([DateTime]::Parse($start)) -End ([DateTime]::Parse($end)) -Location $loc -Description $desc
+                    }
+                    "11" {
+                        $summary = Read-Host "Título"
+                        $start = Read-Host "Inicio (YYYY-MM-DD HH:MM)"
+                        $end = Read-Host "Fin (YYYY-MM-DD HH:MM)"
+                        $loc = Read-Host "Ubicación"
+                        $desc = Read-Host "Descripción"
+                        $advData = New-VCalendarEvent -Summary $summary -Start ([DateTime]::Parse($start)) -End ([DateTime]::Parse($end)) -Location $loc -Description $desc
+                    }
+                    "12" {
+                        $scheme = Read-Host "Esquema (ej: upi, pix, bitcoin)"
+                        $addr = Read-Host "Dirección/ID"
+                        $paramsRaw = Read-Host "Parámetros (k=v&k2=v2)"
+                        $params = @{}
+                        if ($paramsRaw) {
+                            foreach ($pair in ($paramsRaw -split "[&,]")) {
+                                $kv = $pair -split "=", 2
+                                if ($kv.Length -eq 2 -and $kv[0].Trim()) { $params[$kv[0].Trim()] = $kv[1].Trim() }
+                            }
+                        }
+                        $advData = New-PaymentUri -Scheme $scheme -Address $addr -Params $params
                     }
                     default { break }
                 }
