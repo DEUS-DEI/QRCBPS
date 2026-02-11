@@ -254,6 +254,31 @@ Para evolucionar `qrps` hacia un motor de grado industrial, se ha dividido el ro
 ### 💻 Implementación Nativa (PowerShell 5.1/7+)
 *Estas mejoras pueden desarrollarse directamente dentro del motor actual sin dependencias externas complejas.*
 
+- **📦 Códigos de Barras 1D (Base)**:
+  - **UPC-A / UPC-E**: Productos retail en Norteamérica.
+  - **EAN-8 / EAN-13**: Productos retail globales.
+  - **Code 39 (Full/Mod43)**: Industria y logística clásica.
+  - **Code 128 (A/B/C)**: Alta densidad, subconjuntos y compresión numérica.
+  - **GS1-128 (EAN-128)**: AIs GS1 con FNC1 y reglas de formato.
+  - **Interleaved 2 of 5 / ITF-14**: Cajas y embalaje.
+  - **Codabar / MSI**: Bibliotecas, bancos y legacy.
+- **🧱 Códigos de Barras 2D (Base)**:
+  - **Data Matrix ECC200**: Tamaños 10x10 a 144x144, rectangular 8x18 a 16x48.
+  - **GS1 DataMatrix**: AIs GS1, FNC1 y validaciones semánticas.
+  - **PDF417 / MicroPDF417**: Filas/columnas configurables, modos y niveles ECC.
+  - **Aztec (Compact/Full)**: Capas 1–4 (compact) y 1–32 (full).
+  - **MaxiCode**: Modos 2/3/4/5/6 para logística.
+- **🧩 Variantes y Reglas**:
+  - **Check Digits**: UPC/EAN/ITF-14/Code 39/Code 128.
+  - **Quiet Zones**: Cálculo y normalización por simbología.
+  - **Escalas y DPI**: Presets para impresión térmica y offset.
+  - **Validaciones GS1**: Longitudes, AIs y formatos de datos.
+- **⚡ Optimizaciones Propuestas**:
+  - **Raster 1D/2D**: Render directo con tablas de barras y run-length.
+  - **Salida Vectorial**: SVG/EPS/PDF con paths compactos por símbolos.
+  - **Batch Packing**: Layouts automáticos para hojas (A4/Letter).
+  - **Pre-cálculo de patrones**: Cache de dígitos y módulos por estándar.
+
 - **⚡ Rendimiento**:
   - **Procesamiento en Paralelo**: ✅ Implementado mediante `RunspacePool` para máxima eficiencia en lotes.
   - **Caché de Símbolos**: ✅ Implementado mediante reutilización de matrices de patrones fijos y máscaras pre-calculadas.
