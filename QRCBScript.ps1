@@ -4985,6 +4985,7 @@ function New-QRCode {
     [switch]$DataUri,
     [string]$EmbedPath
     )
+    $dataUriStr = $null
     
     # Firmar digitalmente los datos si se proporciona una clave ECDSA
     if (-not [string]::IsNullOrEmpty($SignKeyPath)) {
@@ -5153,7 +5154,7 @@ function New-QRCode {
                 $needsUtf8Auto = $false
                 foreach ($segA in $tmpSegs) { if ($segA.Mode -eq 'B' -and $segA.Data -match '[^ -~]') { $needsUtf8Auto = $true; break } }
                 if ($needsUtf8Auto) { [void]$qrSegments.Add(@{Mode='ECI'; Data="26"}) }
-                $qrSegments.AddRange($tmpSegs)
+                foreach ($seg in $tmpSegs) { [void]$qrSegments.Add($seg) }
             }
             $qrMinVer = 0
             $maxVerAuto = if ($Model -eq 'M1') { 14 } else { 40 }
@@ -5306,7 +5307,9 @@ function New-QRCode {
             $allBits = $bits
         } else {
             [System.Collections.Generic.List[int]]$allBits = New-Object System.Collections.Generic.List[int]
-            [void]$allBits.AddRange($bits) # Ya incluye el padding de datos
+            $bitsInt = @()
+            foreach ($b in $bits) { $bitsInt += [int]$b }
+            [void]$allBits.AddRange([int[]]$bitsInt)
             foreach ($cw in $ecCW) {
                 for ($b = 7; $b -ge 0; $b--) { [void]$allBits.Add([int](($cw -shr $b) -band 1)) }
             }
@@ -5340,7 +5343,57 @@ function New-QRCode {
         
         $sw.Stop()
         Write-Status "Tiempo: $($sw.ElapsedMilliseconds)ms"
-        $final = $final
+        
+        if ($ShowConsole) { ShowConsole $final }
+        if ($QualityReport) {
+            $metrics = GetQualityMetrics $final
+            Write-Host "`n--- REPORTE DE CALIDAD (ISO/IEC 15415 / 29158) ---" -ForegroundColor Cyan
+            Write-Host "Contraste de Símbolo (SC): $($metrics.Contrast)"
+            Write-Host "Modulación: $($metrics.Modulation)"
+            Write-Host "Reflectancia Mínima: $($metrics.Reflectance)"
+            Write-Host "Patrones de Referencia: $($metrics.FixedPattern)"
+            Write-Host "No Uniformidad Axial (AN): $($metrics.AxialNonUniformity)"
+            Write-Host "No Uniformidad de Cuadrícula (GN): $($metrics.GridNonUniformity)"
+            Write-Host "Porcentaje de módulos oscuros: $($metrics.DarkPct)%"
+            Write-Host "-------------------------------------------------`n"
+        }
+        if ($Decode) {
+            $dec = ConvertFrom-MicroQRMatrix $final
+            $symbolType = 'Micro'
+            $aimId = Get-AIM-ID $symbolType $EciValue $Fnc1First $Fnc1Second
+            Write-Host "`nAIM ID: $aimId" -ForegroundColor Yellow
+            if ($dec.Errors -gt 0) { Write-Host "Errores corregidos: $($dec.Errors)" -ForegroundColor Cyan }
+            Write-Status "Decodificado: $($dec.Text)"
+        }
+        
+        if ($OutputPath) {
+            $ext = [System.IO.Path]::GetExtension($OutputPath).ToLower()
+            $label = "Exportar $ext"
+            if ($PSCmdlet.ShouldProcess($OutputPath, $label)) {
+                switch ($ext) {
+                    ".svg" { ExportSvg $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont }
+                    ".pdf" { ExportPdf $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $BottomText $ForegroundColor $ForegroundColor2 $BackgroundColor $Rounded $ModuleShape $GradientType $FrameText $FrameColor $FontFamily $GoogleFont -EmbedPath $EmbedPath }
+                    ".eps" { ExportEps $final $OutputPath $BackgroundColor $ForegroundColor }
+                    default { ExportPng $final $OutputPath $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape }
+                }
+            }
+            Write-Status "Guardado: $OutputPath"
+        }
+        
+        if ($DataUri) {
+            [System.IO.MemoryStream]$ms = New-Object System.IO.MemoryStream
+            [System.Drawing.Bitmap]$img = ExportPng $final "" $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -ReturnBitmap
+            if ($null -ne $img) {
+                $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+                [string]$b64 = [Convert]::ToBase64String($ms.ToArray())
+                $dataUriStr = "data:image/png;base64,$b64"
+                Write-Host "`nData URI (Base64):" -ForegroundColor Cyan
+                Write-Output $dataUriStr
+                $img.Dispose()
+            }
+            $ms.Dispose()
+        }
+        if ($DataUri -and $null -ne $dataUriStr) { return $dataUriStr }
         return $final
     } elseif ($Symbol -eq 'rMQR') {
         if ($ECLevel -ne 'M' -and $ECLevel -ne 'H') { throw "rMQR solo admite ECLevel 'M' o 'H'" }
@@ -5578,6 +5631,20 @@ function New-QRCode {
             }
         }
     }
+        if ($DataUri) {
+            [System.IO.MemoryStream]$ms = New-Object System.IO.MemoryStream
+            [System.Drawing.Bitmap]$img = ExportPngRect $m "" $ModuleSize 4 $LogoPath $LogoScale $ForegroundColor $BackgroundColor $BottomText $ForegroundColor2 $Rounded $GradientType $FrameText $FrameColor $FontFamily $GoogleFont $ModuleShape -ReturnBitmap
+            if ($null -ne $img) {
+                $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+                [string]$b64 = [Convert]::ToBase64String($ms.ToArray())
+                $dataUriStr = "data:image/png;base64,$b64"
+                Write-Host "`nData URI (Base64):" -ForegroundColor Cyan
+                Write-Output $dataUriStr
+                $img.Dispose()
+            }
+            $ms.Dispose()
+        }
+        if ($DataUri -and $null -ne $dataUriStr) { return $dataUriStr }
         return $m
     }
     
@@ -5742,7 +5809,7 @@ function New-QRCode {
         if ($null -ne $img) {
             $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
             [string]$b64 = [Convert]::ToBase64String($ms.ToArray())
-            [string]$dataUriStr = "data:image/png;base64,$b64"
+            $dataUriStr = "data:image/png;base64,$b64"
             Write-Host "`nData URI (Base64):" -ForegroundColor Cyan
             Write-Output $dataUriStr
             $img.Dispose()
@@ -5750,6 +5817,7 @@ function New-QRCode {
         $ms.Dispose()
     }
     
+    if ($DataUri -and $null -ne $dataUriStr) { return $dataUriStr }
     return $final
 }
 
@@ -6467,7 +6535,7 @@ function Show-Menu {
                 }
                 Read-Host "`nPresione Enter para continuar..."
             }
-            "3" {
+            "4" {
                 $dir = Read-Host "Carpeta con imágenes (JPG/PNG)"
                 if (-not (Test-Path $dir)) { Write-Error "Ruta no válida"; break }
                 $out = Read-Host "Archivo PDF de salida [imagenes.pdf]"
@@ -6478,7 +6546,7 @@ function Show-Menu {
                 Convert-ImagesToPdf -inputDir $dir -outputPath $out -layout $lay
                 Read-Host "`nPresione Enter para continuar..."
             }
-            "4" {
+            "5" {
                 $path = Read-Host "Ruta de la imagen del QR"
                 if (Test-Path $path) {
                     $m = Import-QRCode $path
@@ -6491,14 +6559,14 @@ function Show-Menu {
                 }
                 Read-Host "`nPresione Enter para continuar..."
             }
-            "5" {
+            "6" {
                 if (Test-Path ".\config.ini") {
                     Start-Process notepad ".\config.ini"
                 } else {
                     Write-Error "config.ini no encontrado."
                 }
             }
-            "6" { return }
+            "7" { return }
         }
     } while ($true)
     
@@ -6506,7 +6574,7 @@ function Show-Menu {
 }
 
 # ENTRY POINT
-if ($MyInvocation.InvocationName -ne '.' -and $MyInvocation.InvocationName -ne '&') {
+if ($MyInvocation.InvocationName -ne '.') {
     if ($Help) {
         Show-Help
         return

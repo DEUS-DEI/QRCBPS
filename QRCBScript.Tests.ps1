@@ -37,7 +37,7 @@ Describe "QR Code Generator - Robustness & Extensions" {
             & $ScriptPath -Data "EPS Test" -OutputPath $testEps | Out-Null
             
             (Test-Path $testEps) | Should Be $true
-            $content = Get-Content $testEps -Raw -TotalCount 50
+            $content = Get-Content $testEps -Raw
             $content | Should Match "%!PS-Adobe-3.0 EPSF-3.0"
             
             Remove-Item $testEps
