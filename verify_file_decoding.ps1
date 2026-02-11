@@ -1,5 +1,5 @@
 
-. .\QRCode.ps1
+. .\QRCBScript.ps1
 
 function Test-FileDecoding {
     $testDir = "test_files"

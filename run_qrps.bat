@@ -59,7 +59,7 @@ echo.
 echo [INFO] Generando QR...
 
 :: Construir comando dinámicamente
-set ps_cmd=powershell -ExecutionPolicy Bypass -File QRCode.ps1 -Data "!qrdata!" -OutputPath "!qrname!"
+set ps_cmd=powershell -ExecutionPolicy Bypass -File QRCBScript.ps1 -Data "!qrdata!" -OutputPath "!qrname!"
 
 if not "!qrlogo!"=="" set ps_cmd=!ps_cmd! -LogoPath "!qrlogo!" -LogoScale !qrscale!
 if not "!qrcolor!"=="" set ps_cmd=!ps_cmd! -ForegroundColor "!qrcolor!"

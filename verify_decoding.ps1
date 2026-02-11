@@ -30,8 +30,9 @@ function Test-QRDecoding {
     $found = $false
     for ($r=0; $r -lt $qrRS.Size; $r++) {
         for ($c=0; $c -lt $qrRS.Size; $c++) {
-            if (-not [bool]$qrRS.Func.GetValue($r,$c)) {
-                $qrRS.Mod.SetValue(1 - [int]$qrRS.Mod.GetValue($r,$c), $r, $c)
+            $idx = $r * $qrRS.Size + $c
+            if (-not $qrRS.Func[$idx]) {
+                $qrRS.Mod[$idx] = 1 - $qrRS.Mod[$idx]
                 $found = $true
                 Write-Host "Introduced error at ($r,$c)"
                 break
@@ -51,7 +52,6 @@ function Test-QRDecoding {
     try {
         Write-Host "`n--- Test 4: Reed-Solomon Direct Test ---"
         # GF(256) test: [3, 2, 1] with 2 EC bytes
-        $msg = @(1, 2, 3, 0, 0) # 3 data, 2 EC
         # Use New-RS and ConvertFrom-ReedSolomon assuming they are available in QRCBScript.ps1
         $ec = New-RS @(1, 2, 3) 2
         $full = @(1, 2, 3) + $ec

@@ -2577,7 +2577,7 @@ function FindBestMask($m) {
     $best = 0; $min = [int]::MaxValue
     for ($p = 0; $p -lt 8; $p++) {
         $maskedData = ApplyMask $m $p
-        $pen = GetPenalty $maskedData $size
+        $pen = GetPenalty $maskedData.Mod $size
         if ($pen -lt $min) { $min = $pen; $best = $p }
     }
     return $best
@@ -4952,7 +4952,7 @@ function New-QRCode {
         [int]$ModuleSize = 10,
         [int]$EciValue = 0,
         [ValidateSet('QR','Micro','rMQR','AUTO')][string]$Symbol = 'AUTO',
-        [ValidateSet('M1','M2')][string]$Model = 'M2',
+        [ValidateSet('M1','M2','rMQR')][string]$Model = 'M2',
         [ValidateSet('AUTO','M1','M2','M3','M4')][string]$MicroVersion = 'AUTO',
         [switch]$Fnc1First,
         [switch]$Fnc1Second,
@@ -5120,7 +5120,10 @@ function New-QRCode {
     foreach ($s in $dataSegments) { $segments.Add($s) }
 
     if ($Symbol -eq 'AUTO') {
-        $modeAuto = GetMicroMode $Data
+        if ($Model -eq 'rMQR') {
+            $Symbol = 'rMQR'
+        } else {
+            $modeAuto = GetMicroMode $Data
         $orderMv = @('M1','M2','M3','M4')
         $selMv = $null
         foreach ($mv in $orderMv) {
@@ -5221,6 +5224,7 @@ function New-QRCode {
                     $Version = $qrMinVer
                 }
             }
+        }
         }
     }
     
