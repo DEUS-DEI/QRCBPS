@@ -5373,7 +5373,7 @@ function Test-Domain {
     return $d -match "^(?=.{1,253}$)([a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$"
 }
 
-function Normalize-PhoneE164 {
+function ConvertTo-PhoneE164 {
     param([string]$Phone)
     if ([string]::IsNullOrWhiteSpace($Phone)) { return $null }
     $p = $Phone.Trim()
@@ -5386,7 +5386,7 @@ function Normalize-PhoneE164 {
 
 function Test-PhoneE164 {
     param([string]$Phone)
-    return $null -ne (Normalize-PhoneE164 $Phone)
+    return $null -ne (ConvertTo-PhoneE164 $Phone)
 }
 
 function New-MailTo {
@@ -5416,7 +5416,7 @@ function New-Sms {
         [Parameter(Mandatory)][string]$Number,
         [string]$Message = ""
     )
-    $n = Normalize-PhoneE164 $Number
+    $n = ConvertTo-PhoneE164 $Number
     if ($null -eq $n) { throw "Número inválido (E.164) para SMS: $Number" }
     $uri = "sms:$n"
     if ($Message) { $uri += "?body=$([uri]::EscapeDataString($Message))" }
@@ -5425,7 +5425,7 @@ function New-Sms {
 
 function New-Tel {
     param([Parameter(Mandatory)][string]$Number)
-    $n = Normalize-PhoneE164 $Number
+    $n = ConvertTo-PhoneE164 $Number
     if ($null -eq $n) { throw "Número inválido (E.164) para TEL: $Number" }
     return "tel:$n"
 }
@@ -5435,7 +5435,7 @@ function New-WhatsApp {
         [Parameter(Mandatory)][string]$Number,
         [string]$Message = ""
     )
-    $n = Normalize-PhoneE164 $Number
+    $n = ConvertTo-PhoneE164 $Number
     if ($null -eq $n) { throw "Número inválido (E.164) para WhatsApp: $Number" }
     $digits = $n.Substring(1)
     $uri = "https://wa.me/$digits"
